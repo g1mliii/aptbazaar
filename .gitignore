@@ -1,0 +1,95 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+.yarn/install-state.gz
+.pnpm-store/
+
+# Testing
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Next.js
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+
+# Local env files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+
+# Vercel
+.vercel/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.zed/
+.fleet/
+
+# OS
+.DS_Store
+Thumbs.db
+*.pem
+
+# Sentry
+.sentryclirc
+
+# AI assistant files — do not commit AI guidance into the repo
+CLAUDE.md
+AGENTS.md
+IMPLEMENTATION_PLAN.md
+
+# Design system kit — local reference only, never commit
+aptbazaar Design System/
+design-system/
+design_system/
+.design-system/
+.claude/
+.claude-*
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.continue/
+.codex/
+.github/copilot-instructions.md
+GEMINI.md
+.gemini/
+.windsurf/
+.windsurfrules
+.roo/
+.roomodes
+.zed/ai/
+**/AGENTS.md
+**/CLAUDE.md

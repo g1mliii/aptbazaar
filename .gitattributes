@@ -1,0 +1,52 @@
+# Default: normalize line endings to LF in the repo, native on checkout for text files
+* text=auto eol=lf
+
+# Windows-specific scripts stay CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Source files
+*.ts        text
+*.tsx       text
+*.js        text
+*.jsx       text
+*.mjs       text
+*.cjs       text
+*.json      text
+*.md        text
+*.yml       text
+*.yaml      text
+*.toml      text
+*.sql       text
+*.html      text
+*.css       text
+*.scss      text
+*.svg       text
+
+# Binaries
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.avif      binary
+*.ico       binary
+*.pdf       binary
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.otf       binary
+*.eot       binary
+*.zip       binary
+*.tar       binary
+*.tar.gz    binary
+*.gz        binary
+*.mp3       binary
+*.mp4       binary
+*.wasm      binary
+
+# Lockfiles — don't try to diff
+package-lock.json    -diff
+yarn.lock            -diff
+pnpm-lock.yaml       -diff
