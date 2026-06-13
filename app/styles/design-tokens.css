@@ -1,0 +1,207 @@
+:root {
+  --ab-paper: #F6F5F1;
+  --ab-paper-2: #EEEDE7;
+  --ab-paper-3: #DEDCD3;
+  --ab-surface: #FFFFFF;
+  --ab-ink: #1C1A16;
+  --ab-ink-2: #45423C;
+  --ab-ink-3: #84817A;
+  --ab-line: #E5E3DC;
+  --ab-line-strong: #1C1A16;
+
+  --ab-verdigris: #2E6F62;
+  --ab-verdigris-2: #235650;
+  --ab-verdigris-3: #D5E4DF;
+  --ab-marigold: #E8A53E;
+  --ab-marigold-3: #F7E5BB;
+  --ab-teal: #1F4D4A;
+  --ab-teal-3: #D4E3DF;
+  --ab-mulberry: #6B2535;
+
+  --ab-success: #2F6E47;
+  --ab-success-3: #D8E5D2;
+  --ab-warning: #A06B0E;
+  --ab-warning-3: #F4E2B5;
+  --ab-danger: #8A2418;
+  --ab-danger-3: #EBC9C0;
+  --ab-info: #2C4F7B;
+  --ab-info-3: #C9D5E5;
+
+  --ab-status-new-fg: var(--ab-info);
+  --ab-status-new-bg: var(--ab-info-3);
+  --ab-status-accepted-fg: var(--ab-teal);
+  --ab-status-accepted-bg: var(--ab-teal-3);
+  --ab-status-preparing-fg: var(--ab-warning);
+  --ab-status-preparing-bg: var(--ab-warning-3);
+  --ab-status-ready-fg: #6B3A14;
+  --ab-status-ready-bg: #FAD9A8;
+  --ab-status-complete-fg: var(--ab-success);
+  --ab-status-complete-bg: var(--ab-success-3);
+  --ab-status-cancel-fg: var(--ab-danger);
+  --ab-status-cancel-bg: var(--ab-danger-3);
+
+  --ab-font-display: var(--font-instrument-serif), "Iowan Old Style", Georgia, serif;
+  --ab-font-sans: var(--font-inter-tight), ui-sans-serif, system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --ab-font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo,
+    Consolas, monospace;
+
+  --ab-fs-12: 12px;
+  --ab-fs-13: 13px;
+  --ab-fs-14: 14px;
+  --ab-fs-15: 15px;
+  --ab-fs-16: 16px;
+  --ab-fs-18: 18px;
+  --ab-fs-20: 20px;
+  --ab-fs-24: 24px;
+  --ab-fs-28: 28px;
+  --ab-fs-36: 36px;
+  --ab-fs-48: 48px;
+  --ab-fs-64: 64px;
+
+  --ab-s-1: 4px;
+  --ab-s-2: 8px;
+  --ab-s-3: 12px;
+  --ab-s-4: 16px;
+  --ab-s-5: 20px;
+  --ab-s-6: 24px;
+  --ab-s-8: 32px;
+  --ab-s-10: 40px;
+  --ab-s-12: 48px;
+  --ab-s-16: 64px;
+  --ab-s-20: 80px;
+
+  --ab-r-xs: 4px;
+  --ab-r-sm: 8px;
+  --ab-r-md: 12px;
+  --ab-r-lg: 16px;
+  --ab-r-xl: 24px;
+  --ab-r-pill: 999px;
+
+  --ab-shadow-sm: 0 1px 0 rgba(24, 22, 19, 0.06),
+    0 1px 2px rgba(24, 22, 19, 0.05);
+  --ab-shadow-md: 0 1px 0 rgba(24, 22, 19, 0.08),
+    0 6px 16px -8px rgba(24, 22, 19, 0.18);
+  --ab-shadow-lg: 0 2px 0 rgba(24, 22, 19, 0.06),
+    0 24px 48px -16px rgba(24, 22, 19, 0.22);
+  --ab-shadow-stamp: 2px 2px 0 var(--ab-line-strong);
+  --ab-shadow-inset: inset 0 0 0 1px var(--ab-line);
+
+  --ab-ease: cubic-bezier(.2, .7, .2, 1);
+  --ab-ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ab-dur-fast: 120ms;
+  --ab-dur: 200ms;
+  --ab-dur-slow: 360ms;
+}
+
+.ab-display-xl {
+  font-family: var(--ab-font-display);
+  font-weight: 400;
+  font-size: var(--ab-fs-64);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+  color: var(--ab-ink);
+}
+
+.ab-display-lg {
+  font-family: var(--ab-font-display);
+  font-weight: 400;
+  font-size: var(--ab-fs-48);
+  line-height: 1.02;
+  letter-spacing: -0.005em;
+  color: var(--ab-ink);
+}
+
+.ab-display-md {
+  font-family: var(--ab-font-display);
+  font-weight: 400;
+  font-size: var(--ab-fs-36);
+  line-height: 1.05;
+  color: var(--ab-ink);
+}
+
+.ab-h1 {
+  font-family: var(--ab-font-sans);
+  font-weight: 600;
+  font-size: var(--ab-fs-28);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ab-ink);
+}
+
+.ab-h2 {
+  font-family: var(--ab-font-sans);
+  font-weight: 600;
+  font-size: var(--ab-fs-20);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--ab-ink);
+}
+
+.ab-h3 {
+  font-family: var(--ab-font-sans);
+  font-weight: 600;
+  font-size: var(--ab-fs-16);
+  line-height: 1.3;
+  color: var(--ab-ink);
+}
+
+.ab-eyebrow {
+  font-family: var(--ab-font-mono);
+  font-weight: 500;
+  font-size: var(--ab-fs-12);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ab-ink-2);
+}
+
+.ab-body {
+  font-family: var(--ab-font-sans);
+  font-weight: 400;
+  font-size: var(--ab-fs-15);
+  line-height: 1.55;
+  color: var(--ab-ink);
+}
+
+.ab-body-sm {
+  font-family: var(--ab-font-sans);
+  font-weight: 400;
+  font-size: var(--ab-fs-13);
+  line-height: 1.5;
+  color: var(--ab-ink-2);
+}
+
+.ab-label {
+  font-family: var(--ab-font-sans);
+  font-weight: 500;
+  font-size: var(--ab-fs-13);
+  line-height: 1.3;
+  color: var(--ab-ink-2);
+}
+
+.ab-num {
+  font-family: var(--ab-font-mono);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--ab-ink);
+}
+
+.ab-price {
+  font-family: var(--ab-font-mono);
+  font-weight: 500;
+  font-size: var(--ab-fs-16);
+  letter-spacing: -0.01em;
+  color: var(--ab-ink);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ab-caption {
+  font-family: var(--ab-font-sans);
+  font-weight: 400;
+  font-size: var(--ab-fs-12);
+  line-height: 1.4;
+  color: var(--ab-ink-3);
+}

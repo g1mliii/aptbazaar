@@ -1,0 +1,65 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aptbazaar",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-06-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "APP_ENV": "preview",
+    "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
+    "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
+    "NEXT_PUBLIC_APP_ENV": "preview",
+    "NEXT_PUBLIC_APP_VERSION": "0.1.0",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"
+  },
+  "env": {
+    "preview": {
+      "name": "aptbazaar-preview",
+      "send_email": [
+        {
+          "name": "EMAIL"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "preview",
+        "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
+        "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
+        "NEXT_PUBLIC_APP_ENV": "preview",
+        "NEXT_PUBLIC_APP_VERSION": "0.1.0",
+        "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"
+      }
+    },
+    "production": {
+      "name": "aptbazaar",
+      "send_email": [
+        {
+          "name": "EMAIL"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "production",
+        "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
+        "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
+        "NEXT_PUBLIC_APP_ENV": "production",
+        "NEXT_PUBLIC_APP_VERSION": "0.1.0",
+        "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"
+      }
+    }
+  }
+}

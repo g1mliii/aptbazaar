@@ -14,10 +14,10 @@ playwright/.cache/
 
 # Next.js
 .next/
+.open-next/
 out/
 build/
 dist/
-next-env.d.ts
 
 # Local env files
 .env
@@ -33,6 +33,12 @@ next-env.d.ts
 # Cloudflare
 .wrangler/
 .dev.vars
+cloudflare-env.d.ts
+
+# Browser verification artifacts
+.playwright-mcp/
+aptbazaar-phase1-preview-*.png
+aptbazaar-phase1-preview-*.md
 
 # Supabase
 supabase/.branches/

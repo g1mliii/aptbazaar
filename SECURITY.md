@@ -45,7 +45,7 @@ We will:
 - Social engineering of aptbazaar staff or sellers
 - Physical attacks on infrastructure
 - Denial of service attacks
-- Issues in third-party services (Stripe, Supabase, Cloudflare, Resend) — report to those vendors directly
+- Issues in third-party services (Stripe, Supabase, Cloudflare) — report to those vendors directly
 - Anything requiring a logged-in seller to attack their own account
 - Self-XSS
 - Missing best-practice headers that have no exploitable impact

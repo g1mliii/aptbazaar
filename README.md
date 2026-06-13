@@ -10,7 +10,7 @@ aptbazaar lets home bakers, candle and craft makers, meal-prep cooks, tutors, an
 - **Backend:** Supabase (Postgres + Auth + Storage + RLS)
 - **Hosting:** Cloudflare Pages
 - **Payments:** Stripe Connect Express
-- **Email:** Resend
+- **Email:** Cloudflare Email Service
 - **Observability:** Sentry
 - **Validation:** Zod
 - **Testing:** Vitest + Playwright
@@ -22,7 +22,7 @@ Prerequisites:
 - Node.js — version is pinned in [`.nvmrc`](./.nvmrc)
 - A Supabase project (or local instance via the Supabase CLI)
 - A Stripe account with Connect enabled (Express accounts)
-- A Resend account
+- Cloudflare Email Sending enabled for the sender domain
 - A Sentry project (optional during early development)
 
 Setup:
