@@ -21,7 +21,8 @@ const eslintConfig = [
       "playwright-report/**",
       "test-results/**",
       "aptbazaar Design System/**",
-      "cloudflare-env.d.ts"
+      "cloudflare-env.d.ts",
+      "lib/supabase/database.types.ts"
     ]
   },
   js.configs.recommended,

@@ -13,6 +13,14 @@
       "name": "EMAIL"
     }
   ],
+  // Magic-link rate limiting (Phase 2.7). The namespace ids below were created with
+  // `npx wrangler kv namespace create RATE_LIMIT_KV` (+ `--env preview` / `--env production`).
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT_KV",
+      "id": "e9d60bdf69424185b62e4b8a5cb050c4"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -22,6 +30,7 @@
     "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
     "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
     "NEXT_PUBLIC_APP_ENV": "preview",
+    "NEXT_PUBLIC_APP_URL": "http://localhost:3000",
     "NEXT_PUBLIC_APP_VERSION": "0.1.0",
     "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"
@@ -34,11 +43,18 @@
           "name": "EMAIL"
         }
       ],
+      "kv_namespaces": [
+        {
+          "binding": "RATE_LIMIT_KV",
+          "id": "91b34bdb47614027a20b3c9da9227ed7"
+        }
+      ],
       "vars": {
         "APP_ENV": "preview",
         "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
         "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
         "NEXT_PUBLIC_APP_ENV": "preview",
+        "NEXT_PUBLIC_APP_URL": "https://aptbazaar-preview.workers.dev",
         "NEXT_PUBLIC_APP_VERSION": "0.1.0",
         "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
         "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"
@@ -51,11 +67,18 @@
           "name": "EMAIL"
         }
       ],
+      "kv_namespaces": [
+        {
+          "binding": "RATE_LIMIT_KV",
+          "id": "3c6fb81fbec24d67a81c57276241ca0c"
+        }
+      ],
       "vars": {
         "APP_ENV": "production",
         "CLOUDFLARE_EMAIL_FROM": "orders@stoop.app",
         "CLOUDFLARE_EMAIL_FROM_NAME": "Stoop",
         "NEXT_PUBLIC_APP_ENV": "production",
+        "NEXT_PUBLIC_APP_URL": "https://stoop.app",
         "NEXT_PUBLIC_APP_VERSION": "0.1.0",
         "NEXT_PUBLIC_SUPABASE_URL": "https://duokiqmxtoolhpnmqcku.supabase.co",
         "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_lBQLE5VYQIMQwDONxgRVfA_LcZKI2vw"

@@ -14,14 +14,16 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "supabase:migration:list": "supabase migration list"
+    "supabase:migration:list": "supabase migration list",
+    "supabase:gen-types": "supabase gen types typescript --local"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.11",
@@ -47,6 +49,7 @@
     "autoprefixer": "^10.5.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.9",
+    "fast-check": "^3.23.2",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
     "prettier": "^3.8.4",

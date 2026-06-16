@@ -22,7 +22,7 @@ export type CloudflareEmailBinding = {
 
 export function getCloudflareEmailBinding() {
   const { env } = getCloudflareContext();
-  const binding = (env as CloudflareEnv & { EMAIL?: CloudflareEmailBinding }).EMAIL;
+  const binding = (env as { EMAIL?: CloudflareEmailBinding }).EMAIL;
 
   if (!binding) {
     throw new Error("Cloudflare Email binding EMAIL is required");

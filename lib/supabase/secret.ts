@@ -1,11 +1,18 @@
 import "server-only";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { requiredEnv } from "@/lib/env";
+import type { Database } from "@/lib/supabase/database.types";
+
+let secretClient: SupabaseClient<Database> | null = null;
 
 export function createSupabaseSecretClient() {
-  return createClient(
+  if (secretClient) {
+    return secretClient;
+  }
+
+  secretClient = createClient<Database>(
     requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
     requiredEnv("SUPABASE_SECRET_KEY"),
     {
@@ -15,4 +22,5 @@ export function createSupabaseSecretClient() {
       }
     }
   );
+  return secretClient;
 }
