@@ -7,6 +7,7 @@ import { z } from "zod";
 import { resolveReadyImageUploadUrl } from "@/lib/actions/images";
 import { writeAuditLog } from "@/lib/audit/log";
 import { phoneE164 } from "@/lib/schemas/common";
+import { fieldErrorsFrom } from "@/lib/schemas/field-errors";
 import { pickupMethodSchema, storeVisibilitySchema } from "@/lib/schemas/store";
 import { screenStoreName } from "@/lib/security/store-name";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
@@ -67,19 +68,6 @@ const contactSchema = z.object({
   contact_phone_e164: phoneE164.optional().or(z.literal("").transform(() => undefined)),
   contact_address: z.string().trim().max(200).optional().or(z.literal(""))
 });
-
-function fieldErrorsFrom(
-  issues: { path: PropertyKey[]; message: string }[]
-): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path[0];
-    if (typeof key === "string" && !(key in errors)) {
-      errors[key] = issue.message;
-    }
-  }
-  return errors;
-}
 
 async function currentStoreId(supabase: Db): Promise<string | null> {
   const { data } = await supabase

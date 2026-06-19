@@ -158,33 +158,37 @@ describe("row schemas accept representative rows", () => {
 
 describe("schemas reject malformed input", () => {
   it("rejects a bad email", () => {
-    expect(sellerRowSchema.safeParse({
-      id: UUID,
-      user_id: UUID2,
-      display_name: "x",
-      contact_email: "not-an-email",
-      contact_phone_e164: null,
-      contact_address: null,
-      created_at: TS
-    }).success).toBe(false);
+    expect(
+      sellerRowSchema.safeParse({
+        id: UUID,
+        user_id: UUID2,
+        display_name: "x",
+        contact_email: "not-an-email",
+        contact_phone_e164: null,
+        contact_address: null,
+        created_at: TS
+      }).success
+    ).toBe(false);
   });
 
   it("rejects negative price", () => {
-    expect(productRowSchema.safeParse({
-      id: UUID,
-      store_id: UUID2,
-      name: "x",
-      description: null,
-      price_cents: -1,
-      currency: "CAD",
-      image_url: null,
-      qty_available: null,
-      is_active: true,
-      allergens: [],
-      ingredients: null,
-      created_at: TS,
-      updated_at: TS
-    }).success).toBe(false);
+    expect(
+      productRowSchema.safeParse({
+        id: UUID,
+        store_id: UUID2,
+        name: "x",
+        description: null,
+        price_cents: -1,
+        currency: "CAD",
+        image_url: null,
+        qty_available: null,
+        is_active: true,
+        allergens: [],
+        ingredients: null,
+        created_at: TS,
+        updated_at: TS
+      }).success
+    ).toBe(false);
   });
 
   it("rejects an unknown order status", () => {
@@ -193,8 +197,11 @@ describe("schemas reject malformed input", () => {
 
   it("requires email consent on the subscribe form", () => {
     expect(
-      subscriberInputSchema.safeParse({ storeId: UUID, email: "x@example.com", consentEmail: false })
-        .success
+      subscriberInputSchema.safeParse({
+        storeId: UUID,
+        email: "x@example.com",
+        consentEmail: false
+      }).success
     ).toBe(false);
   });
 
@@ -207,6 +214,38 @@ describe("schemas reject malformed input", () => {
         paymentMode: "online",
         idempotencyKey: UUID,
         items: []
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects duplicate product lines on order placement", () => {
+    expect(
+      orderPlacementSchema.safeParse({
+        storeId: UUID,
+        customerName: "Sam",
+        customerEmail: "sam@example.com",
+        paymentMode: "pay_at_pickup",
+        idempotencyKey: UUID,
+        items: [
+          { productId: UUID2, quantity: 1 },
+          { productId: UUID2, quantity: 1 }
+        ]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects oversized order placement carts", () => {
+    expect(
+      orderPlacementSchema.safeParse({
+        storeId: UUID,
+        customerName: "Sam",
+        customerEmail: "sam@example.com",
+        paymentMode: "pay_at_pickup",
+        idempotencyKey: UUID,
+        items: Array.from({ length: 101 }, (_, index) => ({
+          productId: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
+          quantity: 1
+        }))
       }).success
     ).toBe(false);
   });

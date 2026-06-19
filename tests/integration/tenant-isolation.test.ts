@@ -173,6 +173,28 @@ describe("anon (public storefront)", () => {
     expect((data ?? []).length).toBe(0);
   });
 
+  it("can subscribe to an active store without an account", async () => {
+    const email = `anon-sub-${Date.now()}@example.test`;
+    const { error } = await anon.from("subscribers").insert({
+      store_id: sellerA.storeId,
+      email,
+      consent_email: true,
+      unsubscribe_token: `tok-${Date.now()}`
+    });
+    expect(error).toBeNull();
+    await service.from("subscribers").delete().eq("email", email);
+  });
+
+  it("does not let authenticated seller sessions use the public subscriber insert grant", async () => {
+    const { error } = await clientA.from("subscribers").insert({
+      store_id: sellerA.storeId,
+      email: `auth-sub-${Date.now()}@example.test`,
+      consent_email: true,
+      unsubscribe_token: `tok-${Date.now()}`
+    });
+    expect(error).not.toBeNull();
+  });
+
   it("can read active building memberships (bazaar), but the inactive store's row stays hidden", async () => {
     expect(await rowCount(anon, "building_memberships", "id", membershipId)).toBe(1);
   });

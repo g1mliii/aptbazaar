@@ -699,6 +699,28 @@ export type Database = {
           updated_at: string
         }[]
       }
+      place_order: {
+        Args: {
+          p_store_id: string
+          p_customer_name: string
+          p_customer_email: string
+          p_customer_phone_e164: string | null
+          p_payment_mode: Database["public"]["Enums"]["payment_mode"]
+          p_pickup_window: string | null
+          p_notes: string | null
+          p_idempotency_key: string
+          p_request_hash: string
+          p_token: string
+          p_token_ttl_hours: number
+          p_items: Json
+        }
+        Returns: {
+          order_id: string
+          token: string
+          total_cents: number
+          replayed: boolean
+        }[]
+      }
     }
     Enums: {
       building_access_type: "open" | "invite"

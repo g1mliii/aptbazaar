@@ -55,7 +55,7 @@ export async function seedSeller(
   opts: { slug: string; isActive?: boolean } = { slug: "" }
 ): Promise<SeededSeller> {
   counter += 1;
-  const tag = `${Date.now()}-${counter}`;
+  const tag = `${Date.now()}-${counter}-${generateToken().slice(0, 8)}`;
   const email = `seller-${tag}@example.test`;
   const password = `pw-${generateToken()}`;
   const slug = opts.slug || `store-${tag}`;
@@ -81,7 +81,7 @@ export async function seedSeller(
     seller_id: sellerId,
     slug,
     name: `Store ${tag}`,
-    is_active: isActive
+    is_active: true
   });
 
   const productId = await insertReturningId(service, "products", {
@@ -117,6 +117,16 @@ export async function seedSeller(
     consent_email: true,
     unsubscribe_token: generateToken()
   });
+
+  if (!isActive) {
+    const { error: deactivateErr } = await service
+      .from("stores")
+      .update({ is_active: false })
+      .eq("id", storeId);
+    if (deactivateErr) {
+      throw new Error(`deactivate store failed: ${deactivateErr.message}`);
+    }
+  }
 
   return {
     userId,

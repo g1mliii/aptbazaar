@@ -24,12 +24,10 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 const variants: Record<ButtonVariant, string> = {
   primary:
     "border-transparent bg-verdigris text-surface shadow-sm hover:bg-verdigris-2",
-  secondary:
-    "border-line bg-surface text-ink hover:bg-paper-2 hover:text-ink",
+  secondary: "border-line bg-surface text-ink hover:bg-paper-2 hover:text-ink",
   ghost: "border-transparent bg-transparent text-ink hover:bg-paper-2",
   ink: "border-transparent bg-ink text-paper shadow-sm hover:bg-ink-2",
-  danger:
-    "border-danger bg-transparent text-danger hover:bg-danger-3 hover:text-danger"
+  danger: "border-danger bg-transparent text-danger hover:bg-danger-3 hover:text-danger"
 };
 
 const sizes: Record<ButtonSize, string> = {
@@ -74,6 +72,7 @@ export const buttonClassName = ({
   cn(
     "inline-flex shrink-0 items-center justify-center gap-2 border font-sans font-semibold transition-[background-color,border-color,box-shadow,color,transform] duration-fast ease-stoop",
     "active:translate-y-1 active:shadow-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40",
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris",
     "[&_svg]:h-5 [&_svg]:w-5 [&_svg]:stroke-[1.5]",
     variants[variant],
     sizes[size],
@@ -103,10 +102,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       };
 
       if (child.props.ref || ref) {
-        childProps.ref = composeRefs(
-          child.props.ref,
-          ref as ForwardedRef<HTMLElement>
-        );
+        childProps.ref = composeRefs(child.props.ref, ref as ForwardedRef<HTMLElement>);
       }
 
       return cloneElement(child, childProps);

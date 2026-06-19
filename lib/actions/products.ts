@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { resolveReadyImageUploadUrl } from "@/lib/actions/images";
+import { fieldErrorsFrom } from "@/lib/schemas/field-errors";
 import {
   productInputSchema,
   productRowSchema,
@@ -35,19 +36,6 @@ async function currentStoreId(supabase: Db): Promise<string | null> {
     .limit(1)
     .maybeSingle();
   return data?.id ?? null;
-}
-
-function fieldErrorsFrom(
-  issues: { path: PropertyKey[]; message: string }[]
-): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path[0];
-    if (typeof key === "string" && !(key in errors)) {
-      errors[key] = issue.message;
-    }
-  }
-  return errors;
 }
 
 export async function createProduct(input: unknown): Promise<ProductActionResult> {
