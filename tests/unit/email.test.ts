@@ -1,23 +1,24 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sendEmail } from "@/lib/email/send-email";
 
-vi.mock("server-only", () => ({}));
-vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn()
-}));
-
-const getCloudflareContextMock = vi.mocked(getCloudflareContext);
-type TestCloudflareContext = Omit<ReturnType<typeof getCloudflareContext>, "ctx" | "env"> & {
+type TestCloudflareContext = {
+  cf: undefined;
   ctx: object;
   env: Record<string, unknown>;
 };
 
+const cloudflareMocks = vi.hoisted(() => ({
+  getCloudflareContext: vi.fn<() => TestCloudflareContext>()
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: cloudflareMocks.getCloudflareContext
+}));
+
 function mockCloudflareContext(context: TestCloudflareContext) {
-  getCloudflareContextMock.mockReturnValue(
-    context as unknown as ReturnType<typeof getCloudflareContext>
-  );
+  cloudflareMocks.getCloudflareContext.mockReturnValue(context);
 }
 
 describe("Cloudflare email", () => {
