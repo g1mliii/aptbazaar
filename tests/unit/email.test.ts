@@ -16,7 +16,7 @@ type TestCloudflareContext = Omit<ReturnType<typeof getCloudflareContext>, "ctx"
 
 function mockCloudflareContext(context: TestCloudflareContext) {
   getCloudflareContextMock.mockReturnValue(
-    context as ReturnType<typeof getCloudflareContext>
+    context as unknown as ReturnType<typeof getCloudflareContext>
   );
 }
 
