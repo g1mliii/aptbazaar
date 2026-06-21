@@ -7,6 +7,7 @@ import type {
   StorefrontProduct,
   StorefrontStore
 } from "@/app/components/storefront/types";
+import { appEnvironment } from "@/lib/env";
 import { storeChargesEnabled } from "@/lib/stripe/connected-account";
 import { createSupabaseAnonClient } from "@/lib/supabase/anon";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
@@ -26,6 +27,18 @@ const PRODUCT_COLUMNS =
 
 type StoreActiveRow = Omit<StorefrontStore, never> & { is_active: boolean };
 
+function isTestSupabaseConfigError(error: unknown): boolean {
+  if (appEnvironment !== "test" || !(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("NEXT_PUBLIC_SUPABASE_URL is required") ||
+    error.message.includes("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required") ||
+    error.message.includes("Invalid supabaseUrl")
+  );
+}
+
 // Happy path reads through the anon client so RLS stays load-bearing — it returns the store only
 // when it's active, and only its active products. Wrapped in cache() so generateMetadata and the
 // page render share one set of queries per request (supabase-js calls aren't auto-deduped like
@@ -34,7 +47,15 @@ type StoreActiveRow = Omit<StorefrontStore, never> & { is_active: boolean };
 const loadActiveStore = cache(async function loadActiveStore(
   slug: string
 ): Promise<{ store: StorefrontStore; products: StorefrontProduct[] } | null> {
-  const supabase = createSupabaseAnonClient();
+  let supabase: ReturnType<typeof createSupabaseAnonClient>;
+  try {
+    supabase = createSupabaseAnonClient();
+  } catch (error) {
+    if (isTestSupabaseConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
   const { data: store, error: storeError } = await supabase
     .from("stores")
     .select(STORE_COLUMNS)

@@ -16,7 +16,21 @@ const service = serviceClient();
 let seeded: SeededSeller | null = null;
 let skipReason = "";
 
+function ciHasSupabaseSeedConfig(): boolean {
+  return Boolean(
+    process.env.SUPABASE_URL &&
+      process.env.SUPABASE_ANON_KEY &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
+
 test.beforeAll(async () => {
+  if (process.env.CI && !ciHasSupabaseSeedConfig()) {
+    skipReason =
+      "storefront e2e needs SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in CI.";
+    return;
+  }
+
   try {
     seeded = await seedSeller(service, { slug: `e2e-shop-${Date.now()}`, isActive: true });
   } catch (err) {

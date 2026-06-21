@@ -5,7 +5,9 @@ import { defineConfig, devices } from "@playwright/test";
 // Supabase config under the integration-test variable names; the app runtime reads the
 // NEXT_PUBLIC_* / *_SECRET_KEY names, so bridge them here (only filling what's unset).
 try {
-  process.loadEnvFile(".env.local");
+  if (!process.env.CI) {
+    process.loadEnvFile(".env.local");
+  }
 } catch {
   // No .env.local — CI provides the vars through the job environment instead.
 }
