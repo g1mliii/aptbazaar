@@ -11,7 +11,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const getCloudflareContextMock = vi.mocked(getCloudflareContext);
 type TestCloudflareContext = Omit<ReturnType<typeof getCloudflareContext>, "ctx" | "env"> & {
   ctx: object;
-  env: Partial<CloudflareEnv>;
+  env: Record<string, unknown>;
 };
 
 function mockCloudflareContext(context: TestCloudflareContext) {
