@@ -9,6 +9,16 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 
 const getCloudflareContextMock = vi.mocked(getCloudflareContext);
+type TestCloudflareContext = Omit<ReturnType<typeof getCloudflareContext>, "ctx" | "env"> & {
+  ctx: object;
+  env: Partial<CloudflareEnv>;
+};
+
+function mockCloudflareContext(context: TestCloudflareContext) {
+  getCloudflareContextMock.mockReturnValue(
+    context as ReturnType<typeof getCloudflareContext>
+  );
+}
 
 describe("Cloudflare email", () => {
   afterEach(() => {
@@ -21,13 +31,13 @@ describe("Cloudflare email", () => {
     vi.stubEnv("CLOUDFLARE_EMAIL_FROM_NAME", "Stoop");
 
     const send = vi.fn().mockResolvedValue({ messageId: "test-message" });
-    getCloudflareContextMock.mockReturnValue({
+    mockCloudflareContext({
       cf: undefined,
       ctx: {},
       env: {
         EMAIL: { send }
       }
-    } as never);
+    });
 
     await sendEmail({
       to: "buyer@example.com",
@@ -50,11 +60,11 @@ describe("Cloudflare email", () => {
 
   it("fails loudly when the Cloudflare Email binding is missing", async () => {
     vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "orders@stoop.example");
-    getCloudflareContextMock.mockReturnValue({
+    mockCloudflareContext({
       cf: undefined,
       ctx: {},
       env: {}
-    } as never);
+    });
 
     await expect(
       sendEmail({

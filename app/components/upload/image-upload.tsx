@@ -14,6 +14,14 @@ import {
 import { cn } from "@/lib/utils/cn";
 
 type UploadState = "idle" | "uploading" | "processing" | "error";
+type UploadPollBody = {
+  status: string;
+  url: string | null;
+  reason: string | null;
+};
+type UploadStartBody = {
+  uploadId: string;
+};
 
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLLS = 40; // ~60s ceiling before we give up and let the seller retry.
@@ -42,11 +50,40 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<boolean> {
 }
 
 function uploadErrorBody(value: unknown): { error?: string } | null {
-  if (!value || typeof value !== "object" || !("error" in value)) {
+  if (!isRecord(value)) {
     return null;
   }
-  const { error } = value as { error?: unknown };
+  const { error } = value;
   return typeof error === "string" ? { error } : null;
+}
+
+function uploadPollBody(value: unknown): UploadPollBody | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { reason, status, url } = value;
+  if (typeof status !== "string") {
+    return null;
+  }
+  if (url !== null && typeof url !== "string") {
+    return null;
+  }
+  if (reason !== null && typeof reason !== "string") {
+    return null;
+  }
+  return { reason, status, url };
+}
+
+function uploadStartBody(value: unknown): UploadStartBody | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { uploadId } = value;
+  return typeof uploadId === "string" ? { uploadId } : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function ImageUpload({
@@ -111,13 +148,13 @@ export function ImageUpload({
       if (!res.ok) {
         continue;
       }
-      const body: {
-        status: string;
-        url: string | null;
-        reason: string | null;
-      } = await res.json();
+      const responseBody: unknown = await res.json();
+      const body = uploadPollBody(responseBody);
       if (!isActiveRun(runId, signal)) {
         return;
+      }
+      if (!body) {
+        continue;
       }
       if (body.status === "ready" && body.url) {
         setProgress(100);
@@ -187,19 +224,26 @@ export function ImageUpload({
     }
 
     if (!res.ok) {
-      const body = uploadErrorBody(await res.json().catch(() => null));
+      const responseBody: unknown = await res.json().catch(() => null);
+      const body = uploadErrorBody(responseBody);
       setState("error");
       setError(body?.error ?? REJECTION_FALLBACK);
       return;
     }
 
-    const { uploadId }: { uploadId: string } = await res.json();
+    const responseBody: unknown = await res.json();
+    const body = uploadStartBody(responseBody);
     if (!isActiveRun(runId, signal)) {
+      return;
+    }
+    if (!body) {
+      setState("error");
+      setError(REJECTION_FALLBACK);
       return;
     }
     setState("processing");
     setProgress(30);
-    await pollUntilDone(uploadId, runId, signal);
+    await pollUntilDone(body.uploadId, runId, signal);
   }
 
   const busy = state === "uploading" || state === "processing";

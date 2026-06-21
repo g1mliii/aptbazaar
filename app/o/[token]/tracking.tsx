@@ -39,6 +39,21 @@ const STAMP_LABEL: Record<OrderStatus, string> = {
 };
 
 const POLL_MS = 20_000;
+const ORDER_STATUSES: Record<OrderStatus, true> = {
+  new: true,
+  accepted: true,
+  preparing: true,
+  ready: true,
+  complete: true,
+  cancelled: true
+};
+const PAYMENT_STATUSES: Record<PaymentStatus, true> = {
+  unpaid: true,
+  pay_at_pickup: true,
+  paid: true,
+  refunded: true,
+  failed: true
+};
 
 type TrackingProps = {
   token: string;
@@ -53,6 +68,18 @@ type TrackingProps = {
   totalCents: number;
   items: TrackedItem[];
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOrderStatus(value: unknown): value is OrderStatus {
+  return typeof value === "string" && Object.hasOwn(ORDER_STATUSES, value);
+}
+
+function isPaymentStatus(value: unknown): value is PaymentStatus {
+  return typeof value === "string" && Object.hasOwn(PAYMENT_STATUSES, value);
+}
 
 export function Tracking({
   token,
@@ -96,10 +123,12 @@ export function Tracking({
     try {
       const res = await fetch(`/api/track/${token}`, { cache: "no-store" });
       if (!res.ok) return;
-      const data: { orderStatus?: OrderStatus; paymentStatus?: PaymentStatus } =
-        await res.json();
-      if (data.orderStatus) setStatus(data.orderStatus);
-      if (data.paymentStatus) setCurrentPaymentStatus(data.paymentStatus);
+      const data: unknown = await res.json();
+      if (!isRecord(data)) return;
+      if (isOrderStatus(data.orderStatus)) setStatus(data.orderStatus);
+      if (isPaymentStatus(data.paymentStatus)) {
+        setCurrentPaymentStatus(data.paymentStatus);
+      }
     } catch {
       // Offline / transient — the next tick or focus retries.
     }
