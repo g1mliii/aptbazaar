@@ -83,11 +83,14 @@ describe("subscribe", () => {
 
     expect(mocks.createAnon).toHaveBeenCalledTimes(1);
     expect(mocks.anonFrom).toHaveBeenCalledWith("subscribers");
+    // Phase 6.5: single opt-in stamps verified_at at capture so the row is drop-eligible.
     expect(mocks.anonInsert).toHaveBeenCalledWith({
       store_id: UUID_A,
       email: "fan@example.test",
       consent_email: true,
-      unsubscribe_token: "token"
+      unsubscribe_token: "token",
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- asymmetric matcher
+      verified_at: expect.any(String)
     });
   });
 });

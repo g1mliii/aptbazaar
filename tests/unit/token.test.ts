@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateInviteCode, generateToken } from "@/lib/utils/token";
+import { generateInviteCode, generateToken, isGeneratedToken } from "@/lib/utils/token";
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
 const INVITE_RE = /^[023456789ABCDEFGHJKMNPQRSTUVWXYZ]+$/;
@@ -16,6 +16,13 @@ describe("generateToken", () => {
       seen.add(generateToken());
     }
     expect(seen.size).toBe(10_000);
+  });
+
+  it("recognizes only generated token-shaped strings", () => {
+    expect(isGeneratedToken("abcdefghijklmnopqrstuv")).toBe(true);
+    expect(isGeneratedToken("abc")).toBe(false);
+    expect(isGeneratedToken("abcdefghijklmnopqrstu/")).toBe(false);
+    expect(isGeneratedToken("abcdefghijklmnopqrstu=")).toBe(false);
   });
 });
 

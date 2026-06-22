@@ -1,6 +1,8 @@
 // Phase 2.10: cryptographically random tokens. Web Crypto so the same code runs on
 // Workers, Node, and the browser. Tokens NEVER encode the underlying row id.
 
+export const GENERATED_TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
 /** Encode bytes as URL-safe base64 with no padding. */
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -18,6 +20,10 @@ export function generateToken(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return base64UrlEncode(bytes);
+}
+
+export function isGeneratedToken(value: string): boolean {
+  return GENERATED_TOKEN_PATTERN.test(value);
 }
 
 // 32 unambiguous characters (no 0/O confusion: digit 1 and letters I, L, O removed).

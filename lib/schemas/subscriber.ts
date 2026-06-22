@@ -25,3 +25,18 @@ export const subscriberInputSchema = z.object({
 });
 
 export type SubscriberInput = z.infer<typeof subscriberInputSchema>;
+
+// Drop composer input (Phase 6.5). The seller writes a subject + plain-text body; the audience is
+// always all active email subscribers (no SMS / filter tabs in v1).
+export const dropInputSchema = z.object({
+  // Single line — a stray CR/LF would let a crafted subject inject extra mail headers downstream.
+  subject: z
+    .string()
+    .trim()
+    .min(1, "Add a subject.")
+    .max(150)
+    .refine((s) => !/[\r\n]/.test(s), "Keep the subject to a single line."),
+  body: z.string().trim().min(1, "Write something to send.").max(5000)
+});
+
+export type DropInput = z.infer<typeof dropInputSchema>;
