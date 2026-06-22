@@ -19,11 +19,7 @@ function initialsFor(name: string): string {
   return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
 }
 
-export default async function DashboardLayout({
-  children
-}: {
-  children: ReactNode;
-}) {
+export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const seller = await requireSeller();
 
   const supabase = await createSupabaseServerClient();
@@ -36,7 +32,7 @@ export default async function DashboardLayout({
     .maybeSingle();
 
   const storeName = store?.name ?? seller.display_name;
-  const publicUrl = store?.slug ? storefrontUrl(store.slug) : "#";
+  const publicUrl = store?.slug ? `${storefrontUrl(store.slug)}?preview=1` : "#";
 
   return (
     <DashboardChrome

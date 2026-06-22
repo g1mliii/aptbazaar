@@ -12,7 +12,18 @@
 
 // Forward everything OpenNext exports (its internal Durable Objects, etc.)…
 export * from "./.open-next/worker.js";
-// …including the default fetch handler (which `export *` does not re-export)…
-export { default } from "./.open-next/worker.js";
 // …and add our live-order-tracking Durable Object.
 export { OrderStreamDO } from "./worker/order-stream-do.ts";
+
+// The OpenNext default export carries the `fetch` handler (which `export *` does not re-export). We
+// spread it and bolt on `scheduled` (Phase 7.6) so the weekly cron reclaims orphaned QR cache
+// objects without touching the request path.
+import openNextHandler from "./.open-next/worker.js";
+import { sweepQrAssets } from "./worker/qr-sweep.ts";
+
+export default {
+  ...openNextHandler,
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(sweepQrAssets(env));
+  }
+};

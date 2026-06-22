@@ -9,6 +9,7 @@ import { NUDGE_DISMISSED_COOKIE } from "@/lib/cookie-names";
 import { EMPTY_STATES } from "@/lib/copy/empty-states";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import { FirstScanSeal } from "./first-scan-seal";
 import { OrdersBoard, type BoardOrder } from "./orders-board";
 
 // Phase 6.2: the seller Orders screen. The server component owns the read (RLS gates it to the
@@ -23,10 +24,13 @@ export default async function OrdersPage() {
 
   const { data: store } = await supabase
     .from("stores")
-    .select("id")
+    .select("id, first_scan_at, first_scan_seen_at")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
+
+  // The first-scan ceremony fires once: first_scan_at stamped by the beacon, not yet acknowledged.
+  const showFirstScan = !!store?.first_scan_at && !store?.first_scan_seen_at;
 
   let orders: BoardOrder[] = [];
   if (store) {
@@ -45,7 +49,11 @@ export default async function OrdersPage() {
     <section className="mx-auto max-w-5xl">
       <h1 className="mb-5 font-display text-36 leading-none text-ink">Orders</h1>
 
-      {!nudgeDismissed ? <OnboardingNudge /> : null}
+      {showFirstScan ? (
+        <FirstScanSeal storeId={store.id} />
+      ) : !nudgeDismissed ? (
+        <OnboardingNudge />
+      ) : null}
 
       {orders.length === 0 ? (
         <EmptyState

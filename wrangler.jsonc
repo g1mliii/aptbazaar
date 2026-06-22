@@ -38,10 +38,17 @@
   // Top-level is the local-dev default — it points at the PREVIEW bucket + queue so `wrangler dev`
   // never writes into production (and matches the preview NEXT_PUBLIC_UPLOADS_BASE_URL below).
   // The env.production block overrides these to the production resources.
+  // Phase 7.6 QR assets: a dedicated bucket caches generated SVG/PNG/PDF posters (keyed by a content
+  // hash) and holds the flyer fonts under fonts/. Top-level + preview point at the preview bucket;
+  // env.production overrides to aptbazaar-qr. Create both with `wrangler r2 bucket create`.
   "r2_buckets": [
     {
       "binding": "UPLOADS_BUCKET",
       "bucket_name": "aptbazaar-uploads-preview"
+    },
+    {
+      "binding": "QR_BUCKET",
+      "bucket_name": "aptbazaar-qr-preview"
     }
   ],
   "queues": {
@@ -51,6 +58,11 @@
         "queue": "image-processing-preview"
       }
     ]
+  },
+  // Phase 7.6 weekly orphan sweep: the scheduled() handler in worker.mjs reclaims QR cache objects
+  // whose store is gone or whose slug/visibility has changed. Sunday 05:00 UTC.
+  "triggers": {
+    "crons": ["0 5 * * SUN"]
   },
   "observability": {
     "enabled": true,
@@ -89,6 +101,10 @@
         {
           "binding": "UPLOADS_BUCKET",
           "bucket_name": "aptbazaar-uploads-preview"
+        },
+        {
+          "binding": "QR_BUCKET",
+          "bucket_name": "aptbazaar-qr-preview"
         }
       ],
       "queues": {
@@ -98,6 +114,9 @@
             "queue": "image-processing-preview"
           }
         ]
+      },
+      "triggers": {
+        "crons": ["0 5 * * SUN"]
       },
       "vars": {
         "APP_ENV": "preview",
@@ -132,6 +151,10 @@
         {
           "binding": "UPLOADS_BUCKET",
           "bucket_name": "aptbazaar-uploads"
+        },
+        {
+          "binding": "QR_BUCKET",
+          "bucket_name": "aptbazaar-qr"
         }
       ],
       "queues": {
@@ -141,6 +164,9 @@
             "queue": "image-processing"
           }
         ]
+      },
+      "triggers": {
+        "crons": ["0 5 * * SUN"]
       },
       "vars": {
         "APP_ENV": "production",
