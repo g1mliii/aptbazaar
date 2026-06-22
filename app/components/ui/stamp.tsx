@@ -10,7 +10,9 @@ export type StampStatus =
   | "complete"
   | "cancelled"
   | "paid"
-  | "refunded";
+  | "refunded"
+  | "refund_pending"
+  | "refund_failed";
 
 const statusColors: Record<StampStatus, string> = {
   new: "var(--ab-status-new-fg)",
@@ -20,7 +22,9 @@ const statusColors: Record<StampStatus, string> = {
   complete: "var(--ab-status-complete-fg)",
   cancelled: "var(--ab-status-cancel-fg)",
   paid: "var(--ab-success)",
-  refunded: "var(--ab-danger)"
+  refunded: "var(--ab-danger)",
+  refund_pending: "var(--ab-ink-2)",
+  refund_failed: "var(--ab-danger)"
 };
 
 type StampProps = HTMLAttributes<HTMLSpanElement> & {

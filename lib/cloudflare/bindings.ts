@@ -18,7 +18,7 @@ export interface R2Bucket {
 }
 
 export interface Queue<Body = unknown> {
-  send(body: Body, options?: { contentType?: string }): Promise<void>;
+  send(body: Body, options?: { contentType?: string }): Promise<unknown>;
 }
 
 /** R2 bucket holding seller uploads (pending + cleaned). Null outside the Worker runtime. */

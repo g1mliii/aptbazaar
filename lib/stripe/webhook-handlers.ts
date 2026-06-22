@@ -160,6 +160,44 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   throwOnSupabaseError("mark_order_refunded", error);
 }
 
+async function handleRefundFailed(refund: Stripe.Refund): Promise<void> {
+  // charge.refund.updated fires on every refund status change; only a genuinely failed refund moves
+  // the order. (refund.failed, where enabled, carries an already-failed refund.)
+  if (refund.status !== "failed") return;
+  const paymentIntentId = asId(refund.payment_intent);
+  if (!paymentIntentId) return;
+  const orderId = await orderIdForPaymentIntent(paymentIntentId, refund.metadata);
+  if (!orderId) return;
+
+  const supabase = createSupabaseSecretClient();
+  // paid/refund_pending → refund_failed. The failed event can arrive before the local
+  // refund_pending write, so accept either pre-failure state. Do NOT restore stock/count: the money
+  // never landed, so the order's inventory must stay consumed (the stock_restored marker is left
+  // untouched).
+  const { data, error } = await supabase
+    .from("orders")
+    .update({ payment_status: "refund_failed" })
+    .eq("id", orderId)
+    .in("payment_status", ["paid", "refund_pending"])
+    .select("id");
+  throwOnSupabaseError("orders refund_failed update", error);
+
+  // Only audit + alert on the real transition, so a redelivery doesn't double-fire the founder alert.
+  if ((data ?? []).length > 0) {
+    await writeAuditLog({
+      actorType: "system",
+      action: "order.refund_failed",
+      targetTable: "orders",
+      targetId: orderId,
+      payload: { stripe_refund_id: refund.id, failure_reason: refund.failure_reason ?? null }
+    });
+    Sentry.captureMessage(
+      `Stripe refund failed for order ${orderId} (refund ${refund.id})`,
+      "warning"
+    );
+  }
+}
+
 async function handleDisputeCreated(dispute: Stripe.Dispute): Promise<void> {
   const paymentIntentId = asId(dispute.payment_intent);
   const orderId = paymentIntentId
@@ -230,6 +268,14 @@ export async function processStripeEvent(event: Stripe.Event): Promise<void> {
       return;
     case "charge.refunded":
       await handleChargeRefunded(event.data.object);
+      return;
+    // Refund-failure signal. The event name depends on the API version / payload: newer accounts
+    // emit the top-level `refund.updated` / `refund.failed`; older ones `charge.refund.updated`.
+    // All three carry a Refund object; handleRefundFailed only acts when status === "failed".
+    case "refund.updated":
+    case "charge.refund.updated":
+    case "refund.failed":
+      await handleRefundFailed(event.data.object);
       return;
     case "charge.dispute.created":
       await handleDisputeCreated(event.data.object);

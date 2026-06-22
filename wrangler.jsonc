@@ -1,7 +1,10 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "aptbazaar",
-  "main": ".open-next/worker.js",
+  // Custom entry (worker.mjs) re-exports the generated OpenNext handler + our OrderStreamDO. The
+  // OpenNext build still emits `.open-next/worker.js`; the wrapper just adds the Durable Object so
+  // wrangler sees it exported. Run `opennextjs-cloudflare build` before any wrangler command.
+  "main": "worker.mjs",
   "compatibility_date": "2026-06-12",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
@@ -13,6 +16,15 @@
       "name": "EMAIL"
     }
   ],
+  // Phase 6.0c live order tracking: one Durable Object per order fans status changes out to watcher
+  // tabs over SSE after token validation. Bindings must be duplicated per-env (like send_email /
+  // kv_namespaces). OrderStreamDO is re-exported via the custom `main` (worker.mjs). The app also
+  // works without the DO bound: the stream route returns 503 and the tracking page rides its 20s
+  // poll fallback.
+  "durable_objects": {
+    "bindings": [{ "name": "ORDER_STREAM", "class_name": "OrderStreamDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrderStreamDO"] }],
   // Magic-link rate limiting (Phase 2.7). The namespace ids below were created with
   // `npx wrangler kv namespace create RATE_LIMIT_KV` (+ `--env preview` / `--env production`).
   "kv_namespaces": [
@@ -63,6 +75,10 @@
           "name": "EMAIL"
         }
       ],
+      "durable_objects": {
+        "bindings": [{ "name": "ORDER_STREAM", "class_name": "OrderStreamDO" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrderStreamDO"] }],
       "kv_namespaces": [
         {
           "binding": "RATE_LIMIT_KV",
@@ -102,6 +118,10 @@
           "name": "EMAIL"
         }
       ],
+      "durable_objects": {
+        "bindings": [{ "name": "ORDER_STREAM", "class_name": "OrderStreamDO" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrderStreamDO"] }],
       "kv_namespaces": [
         {
           "binding": "RATE_LIMIT_KV",

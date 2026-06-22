@@ -43,6 +43,11 @@ export async function refundOrder(orderId: string): Promise<RefundResult> {
   if (order.payment_status === "refunded") {
     return { ok: false, error: "This order's already refunded." };
   }
+  // Re-clicking an order whose refund is already in flight is a no-op, not an error — the cancel
+  // flow leans on this so a double Cancel & refund doesn't fire a second Stripe refund.
+  if (order.payment_status === "refund_pending") {
+    return { ok: true };
+  }
   if (order.payment_status !== "paid" || !order.stripe_payment_intent_id) {
     return { ok: false, error: "Only a paid online order can be refunded." };
   }
@@ -62,6 +67,42 @@ export async function refundOrder(orderId: string): Promise<RefundResult> {
     );
   } catch {
     return { ok: false, error: "Stripe couldn't process the refund. Try again." };
+  }
+
+  // Stripe accepted the refund (seconds) but the bank posting it (5–10 business days) is a separate
+  // timeline, and the refund can still fail. Move to the in-between refund_pending state now; the
+  // charge.refunded webhook confirms it to 'refunded', a refund-failure event flips it to
+  // 'refund_failed'. The guarded paid→refund_pending update also serializes a double-click.
+  const { data: updated, error: updateError } = await supabase
+    .from("orders")
+    .update({ payment_status: "refund_pending" })
+    .eq("id", order.id)
+    .eq("payment_status", "paid")
+    .select("id")
+    .maybeSingle();
+  if (updateError) {
+    return {
+      ok: false,
+      error: "Stripe started the refund, but this order didn't update. Refresh and try again."
+    };
+  }
+  if (!updated) {
+    const { data: latest, error: reloadError } = await supabase
+      .from("orders")
+      .select("payment_status")
+      .eq("id", order.id)
+      .maybeSingle();
+    if (
+      reloadError ||
+      !latest ||
+      (latest.payment_status !== "refund_pending" &&
+        latest.payment_status !== "refunded")
+    ) {
+      return {
+        ok: false,
+        error: "Stripe started the refund, but this order didn't update. Refresh and try again."
+      };
+    }
   }
 
   await writeAuditLog({

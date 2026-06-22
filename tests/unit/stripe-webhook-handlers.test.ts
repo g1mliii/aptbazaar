@@ -174,4 +174,76 @@ describe("processStripeEvent", () => {
       p_amount_refunded: 600
     });
   });
+
+  it("flips a refund_pending order to refund_failed and alerts when a refund fails", async () => {
+    // The guarded update matched a row, so the transition + audit + alert all fire.
+    mocks.select.mockResolvedValueOnce({ data: [{ id: ORDER_ID }], error: null });
+
+    await processStripeEvent(
+      stripeEvent("charge.refund.updated", {
+        id: "re_failed",
+        status: "failed",
+        failure_reason: "expired_or_canceled_card",
+        metadata: { order_id: ORDER_ID },
+        payment_intent: "pi_test"
+      })
+    );
+
+    expect(mocks.update).toHaveBeenCalledWith({ payment_status: "refund_failed" });
+    expect(mocks.inFilter).toHaveBeenCalledWith("payment_status", [
+      "paid",
+      "refund_pending"
+    ]);
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith({
+      actorType: "system",
+      action: "order.refund_failed",
+      targetTable: "orders",
+      targetId: ORDER_ID,
+      payload: { stripe_refund_id: "re_failed", failure_reason: "expired_or_canceled_card" }
+    });
+    expect(mocks.captureMessage).toHaveBeenCalled();
+    // Stock must NOT be restored on a failed refund — that path runs no RPC.
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("handles a failed refund that arrives while the order is still paid", async () => {
+    mocks.select.mockResolvedValueOnce({ data: [{ id: ORDER_ID }], error: null });
+
+    await processStripeEvent(
+      stripeEvent("refund.failed", {
+        id: "re_early_failed",
+        status: "failed",
+        failure_reason: "expired_or_canceled_card",
+        metadata: { order_id: ORDER_ID },
+        payment_intent: "pi_test"
+      })
+    );
+
+    expect(mocks.update).toHaveBeenCalledWith({ payment_status: "refund_failed" });
+    expect(mocks.inFilter).toHaveBeenCalledWith("payment_status", [
+      "paid",
+      "refund_pending"
+    ]);
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "order.refund_failed",
+        targetId: ORDER_ID
+      })
+    );
+  });
+
+  it("ignores a non-failed refund update (no state change, no alert)", async () => {
+    await processStripeEvent(
+      stripeEvent("charge.refund.updated", {
+        id: "re_ok",
+        status: "succeeded",
+        metadata: { order_id: ORDER_ID },
+        payment_intent: "pi_test"
+      })
+    );
+
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled();
+    expect(mocks.captureMessage).not.toHaveBeenCalled();
+  });
 });

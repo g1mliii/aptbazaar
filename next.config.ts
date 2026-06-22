@@ -7,7 +7,9 @@ import { securityHeaders } from "./lib/security/headers";
 
 const projectRoot = dirname(fileURLToPath(import.meta.url));
 
-void initOpenNextCloudflareForDev();
+if (process.env.NODE_ENV === "development") {
+  void initOpenNextCloudflareForDev();
+}
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],

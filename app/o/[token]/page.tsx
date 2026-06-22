@@ -36,12 +36,13 @@ export default async function OrderTrackingPage({
     );
   }
 
-  const { order, items, store } = result;
+  const { order, items, store, notesShared } = result;
 
   return (
     <Tracking
       initialStatus={order.order_status}
       items={items}
+      notesShared={notesShared}
       orderRef={orderRefFrom(order.id)}
       paymentMode={order.payment_mode}
       paymentStatus={order.payment_status}

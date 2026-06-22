@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { buildingRowSchema, buildingMembershipRowSchema } from "@/lib/schemas/building";
-import { orderRowSchema, orderPlacementSchema } from "@/lib/schemas/order";
+import {
+  orderNotesSchema,
+  orderPlacementSchema,
+  orderRowSchema,
+  orderStatusTransitionSchema,
+  paymentStatusSchema,
+  TRANSITIONS
+} from "@/lib/schemas/order";
 import { orderItemRowSchema } from "@/lib/schemas/order-item";
 import { productRowSchema } from "@/lib/schemas/product";
 import { sellerRowSchema } from "@/lib/schemas/seller";
@@ -89,6 +96,9 @@ describe("row schemas accept representative rows", () => {
         pickup_time: null,
         pickup_window: null,
         notes: null,
+        notes_seller: null,
+        notes_shared: null,
+        stock_restored: false,
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
         checkout_retry_count: 0,
@@ -251,6 +261,52 @@ describe("schemas reject malformed input", () => {
   });
 });
 
+describe("Phase 6 order lifecycle schemas", () => {
+  it("payment status round-trips the refund-lifecycle values", () => {
+    expect(paymentStatusSchema.safeParse("refund_pending").success).toBe(true);
+    expect(paymentStatusSchema.safeParse("refund_failed").success).toBe(true);
+    expect(paymentStatusSchema.safeParse("refunded").success).toBe(true);
+    expect(paymentStatusSchema.safeParse("nonsense").success).toBe(false);
+  });
+
+  it("status transition input requires a uuid and a valid target status", () => {
+    expect(
+      orderStatusTransitionSchema.safeParse({ orderId: UUID, to: "ready" }).success
+    ).toBe(true);
+    expect(
+      orderStatusTransitionSchema.safeParse({ orderId: "nope", to: "ready" }).success
+    ).toBe(false);
+    expect(
+      orderStatusTransitionSchema.safeParse({ orderId: UUID, to: "shipped" }).success
+    ).toBe(false);
+  });
+
+  it("notes input accepts partial, nullable, and bounded notes", () => {
+    expect(orderNotesSchema.safeParse({ orderId: UUID }).success).toBe(true);
+    expect(
+      orderNotesSchema.safeParse({ orderId: UUID, notesSeller: null }).success
+    ).toBe(true);
+    expect(
+      orderNotesSchema.safeParse({ orderId: UUID, notesShared: "Out back, ring the bell." })
+        .success
+    ).toBe(true);
+    expect(
+      orderNotesSchema.safeParse({ orderId: UUID, notesSeller: "x".repeat(2001) }).success
+    ).toBe(false);
+  });
+
+  it("TRANSITIONS encodes the state machine with terminal complete/cancelled", () => {
+    expect(TRANSITIONS.new).toEqual(["accepted", "cancelled"]);
+    expect(TRANSITIONS.ready).toEqual(["complete", "cancelled"]);
+    expect(TRANSITIONS.complete).toEqual([]);
+    expect(TRANSITIONS.cancelled).toEqual([]);
+    // Every non-terminal status can cancel.
+    for (const from of ["new", "accepted", "preparing", "ready"] as const) {
+      expect(TRANSITIONS[from]).toContain("cancelled");
+    }
+  });
+});
+
 function orderStatusReject(): boolean {
   return orderRowSchema.safeParse({
     id: UUID,
@@ -266,6 +322,9 @@ function orderStatusReject(): boolean {
     pickup_time: null,
     pickup_window: null,
     notes: null,
+    notes_seller: null,
+    notes_shared: null,
+    stock_restored: false,
     stripe_checkout_session_id: null,
     stripe_payment_intent_id: null,
     checkout_retry_count: 0,

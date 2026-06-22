@@ -23,7 +23,10 @@ const eslintConfig = [
       "aptbazaar Design System/**",
       "cloudflare-env.d.ts",
       "lib/supabase/database.types.ts",
-      "image-processor/**"
+      "image-processor/**",
+      // Thin wrapper re-exporting the generated OpenNext worker (a build artifact); resolved at
+      // wrangler/opennext build time, not lintable standalone.
+      "worker.mjs"
     ]
   },
   js.configs.recommended,

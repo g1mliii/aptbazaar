@@ -5,25 +5,21 @@ import Link from "next/link";
 import { OnboardingNudge } from "@/app/components/onboarding/onboarding-nudge";
 import { Button } from "@/app/components/ui/button";
 import { EmptyState } from "@/app/components/ui/empty-state";
-import { Stamp, type StampStatus } from "@/app/components/ui/stamp";
 import { NUDGE_DISMISSED_COOKIE } from "@/lib/cookie-names";
 import { EMPTY_STATES } from "@/lib/copy/empty-states";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { formatMoney } from "@/lib/pricing/currency";
 
-type OrderRow = {
-  id: string;
-  customer_name: string;
-  total_cents: number;
-  order_status: StampStatus;
-  created_at: string;
-};
+import { OrdersBoard, type BoardOrder } from "./orders-board";
+
+// Phase 6.2: the seller Orders screen. The server component owns the read (RLS gates it to the
+// seller's own store); the board client component owns filters, the detail panel, optimistic
+// transitions, and the cancel/mark-paid/notes mutations. Explicit columns, never select * on
+// orders (hard invariant 6).
 
 export default async function OrdersPage() {
   const supabase = await createSupabaseServerClient();
   const cookieStore = await cookies();
-  const nudgeDismissed =
-    cookieStore.get(NUDGE_DISMISSED_COOKIE)?.value === "1";
+  const nudgeDismissed = cookieStore.get(NUDGE_DISMISSED_COOKIE)?.value === "1";
 
   const { data: store } = await supabase
     .from("stores")
@@ -32,11 +28,13 @@ export default async function OrdersPage() {
     .limit(1)
     .maybeSingle();
 
-  let orders: OrderRow[] = [];
+  let orders: BoardOrder[] = [];
   if (store) {
     const { data } = await supabase
       .from("orders")
-      .select("id, customer_name, total_cents, order_status, created_at")
+      .select(
+        "id, customer_name, customer_email, customer_phone_e164, total_cents, order_status, payment_status, payment_mode, pickup_window, pickup_time, notes, notes_seller, notes_shared, created_at, order_items(name_at_purchase, quantity, price_cents_at_purchase)"
+      )
       .eq("store_id", store.id)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -44,7 +42,7 @@ export default async function OrdersPage() {
   }
 
   return (
-    <section className="mx-auto max-w-4xl">
+    <section className="mx-auto max-w-5xl">
       <h1 className="mb-5 font-display text-36 leading-none text-ink">Orders</h1>
 
       {!nudgeDismissed ? <OnboardingNudge /> : null}
@@ -61,22 +59,7 @@ export default async function OrdersPage() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
-          {orders.map((order) => (
-            <div
-              key={order.id}
-              className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-line px-4 py-3 last:border-b-0"
-            >
-              <span className="truncate text-14 font-semibold text-ink">
-                {order.customer_name}
-              </span>
-              <Stamp status={order.order_status}>{order.order_status}</Stamp>
-              <span className="text-right font-mono text-14 font-medium text-ink">
-                {formatMoney(order.total_cents)}
-              </span>
-            </div>
-          ))}
-        </div>
+        <OrdersBoard orders={orders} />
       )}
     </section>
   );

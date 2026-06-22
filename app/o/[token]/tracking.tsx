@@ -10,7 +10,13 @@ import { Stamp } from "@/app/components/ui/stamp";
 import { Toast } from "@/app/components/ui/toast";
 import { resumeCheckout } from "@/lib/actions/checkout";
 import { cn } from "@/lib/utils/cn";
-import type { OrderStatus, PaymentMode, PaymentStatus } from "@/lib/schemas/order";
+import {
+  orderStatusSchema,
+  paymentStatusSchema,
+  type OrderStatus,
+  type PaymentMode,
+  type PaymentStatus
+} from "@/lib/schemas/order";
 import type { TrackedItem } from "@/lib/orders/tracking";
 import { formatMoney } from "@/lib/pricing/currency";
 
@@ -39,20 +45,14 @@ const STAMP_LABEL: Record<OrderStatus, string> = {
 };
 
 const POLL_MS = 20_000;
-const ORDER_STATUSES: Record<OrderStatus, true> = {
-  new: true,
-  accepted: true,
-  preparing: true,
-  ready: true,
-  complete: true,
-  cancelled: true
-};
-const PAYMENT_STATUSES: Record<PaymentStatus, true> = {
-  unpaid: true,
-  pay_at_pickup: true,
-  paid: true,
-  refunded: true,
-  failed: true
+
+// Customer-facing refund copy. refund_failed is a seller problem to fix (Stripe handoff in the
+// dashboard), so the customer just sees a neutral "we're on it" line — never an error code.
+const REFUND_COPY: Partial<Record<PaymentStatus, string>> = {
+  refund_pending: "Refund started.",
+  refunded: "Refund sent. Your bank may take 5–10 business days to show it.",
+  refund_failed:
+    "There's a problem with your refund — the seller has been notified."
 };
 
 type TrackingProps = {
@@ -67,6 +67,7 @@ type TrackingProps = {
   pickupNote: string | null;
   totalCents: number;
   items: TrackedItem[];
+  notesShared: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,11 +75,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isOrderStatus(value: unknown): value is OrderStatus {
-  return typeof value === "string" && Object.hasOwn(ORDER_STATUSES, value);
+  return orderStatusSchema.safeParse(value).success;
 }
 
 function isPaymentStatus(value: unknown): value is PaymentStatus {
-  return typeof value === "string" && Object.hasOwn(PAYMENT_STATUSES, value);
+  return paymentStatusSchema.safeParse(value).success;
 }
 
 export function Tracking({
@@ -92,7 +93,8 @@ export function Tracking({
   pickupWindow,
   pickupNote,
   totalCents,
-  items
+  items,
+  notesShared
 }: TrackingProps) {
   const [status, setStatus] = useState<OrderStatus>(initialStatus);
   const [currentPaymentStatus, setCurrentPaymentStatus] =
@@ -119,38 +121,59 @@ export function Tracking({
     });
   }
 
+  const applyData = useCallback((data: unknown) => {
+    if (!isRecord(data)) return;
+    if (isOrderStatus(data.orderStatus)) setStatus(data.orderStatus);
+    if (isPaymentStatus(data.paymentStatus)) {
+      setCurrentPaymentStatus(data.paymentStatus);
+    }
+  }, []);
+
   const refetch = useCallback(async () => {
     try {
       const res = await fetch(`/api/track/${token}`, { cache: "no-store" });
       if (!res.ok) return;
-      const data: unknown = await res.json();
-      if (!isRecord(data)) return;
-      if (isOrderStatus(data.orderStatus)) setStatus(data.orderStatus);
-      if (isPaymentStatus(data.paymentStatus)) {
-        setCurrentPaymentStatus(data.paymentStatus);
-      }
+      applyData(await res.json());
     } catch {
       // Offline / transient — the next tick or focus retries.
     }
-  }, [token]);
+  }, [token, applyData]);
 
   useEffect(() => {
-    // Phase 6 seam: replace this poll with
-    //   const es = new EventSource(`/api/track/${token}/stream`)
-    //   es.addEventListener("status", (e) => setStatus(JSON.parse(e.data).orderStatus))
-    const interval = setInterval(() => void refetch(), POLL_MS);
+    // Live updates over SSE (Phase 6.0c), with the 20s poll kept as reconciliation. Seller actions
+    // publish immediately; Stripe webhook payment/refund changes may only be visible through poll.
     const onVisible = () => {
       if (document.visibilityState === "visible") void refetch();
     };
     document.addEventListener("visibilitychange", onVisible);
+
+    const pollId = setInterval(() => void refetch(), POLL_MS);
+
+    let es: EventSource | null = null;
+    if (typeof EventSource !== "undefined") {
+      es = new EventSource(`/api/track/${token}/stream`);
+      es.addEventListener("status", (event) => {
+        try {
+          applyData(JSON.parse(event.data as string));
+        } catch {
+          // Ignore a malformed frame; the next one or the poll corrects it.
+        }
+      });
+      es.onerror = () => {
+        void refetch();
+      };
+    }
+
     return () => {
-      clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
+      es?.close();
+      clearInterval(pollId);
     };
-  }, [refetch]);
+  }, [refetch, applyData, token]);
 
   const cancelled = status === "cancelled";
   const activeIdx = FLOW.findIndex((s) => s.key === status);
+  const refundCopy = REFUND_COPY[currentPaymentStatus];
 
   const receiptLines = items.map((i) => ({
     label: `${i.quantity}× ${i.name}`,
@@ -182,6 +205,12 @@ export function Tracking({
       <p className="mt-2 text-center font-mono text-12 uppercase tracking-[0.08em] text-ink-3">
         Order {orderRef} · tracking link saved
       </p>
+
+      {refundCopy ? (
+        <Card className="mt-6">
+          <p className="text-center font-sans text-14 text-ink">{refundCopy}</p>
+        </Card>
+      ) : null}
 
       {needsPayment ? (
         <Card className="mt-6">
@@ -229,6 +258,15 @@ export function Tracking({
               );
             })}
           </ol>
+        </Card>
+      ) : null}
+
+      {notesShared ? (
+        <Card className="mt-4">
+          <p className="font-mono text-12 uppercase tracking-[0.08em] text-ink-3">
+            A note from {storeName}
+          </p>
+          <p className="mt-2 font-sans text-14 text-ink">{notesShared}</p>
         </Card>
       ) : null}
 

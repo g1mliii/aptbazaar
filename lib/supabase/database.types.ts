@@ -326,12 +326,15 @@ export type Database = {
           id: string
           idempotency_key: string
           notes: string | null
+          notes_seller: string | null
+          notes_shared: string | null
           order_status: Database["public"]["Enums"]["order_status"]
           payment_mode: Database["public"]["Enums"]["payment_mode"]
           payment_status: Database["public"]["Enums"]["payment_status"]
           pickup_time: string | null
           pickup_window: string | null
           request_hash: string
+          stock_restored: boolean
           store_id: string
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
@@ -348,12 +351,15 @@ export type Database = {
           id?: string
           idempotency_key: string
           notes?: string | null
+          notes_seller?: string | null
+          notes_shared?: string | null
           order_status?: Database["public"]["Enums"]["order_status"]
           payment_mode: Database["public"]["Enums"]["payment_mode"]
           payment_status: Database["public"]["Enums"]["payment_status"]
           pickup_time?: string | null
           pickup_window?: string | null
           request_hash: string
+          stock_restored?: boolean
           store_id: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -370,12 +376,15 @@ export type Database = {
           id?: string
           idempotency_key?: string
           notes?: string | null
+          notes_seller?: string | null
+          notes_shared?: string | null
           order_status?: Database["public"]["Enums"]["order_status"]
           payment_mode?: Database["public"]["Enums"]["payment_mode"]
           payment_status?: Database["public"]["Enums"]["payment_status"]
           pickup_time?: string | null
           pickup_window?: string | null
           request_hash?: string
+          stock_restored?: boolean
           store_id?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -739,6 +748,24 @@ export type Database = {
         }
         Returns: string | null
       }
+      mark_pay_at_pickup_paid: {
+        Args: {
+          p_order_id: string
+          p_seller_user_id: string
+        }
+        Returns: Database["public"]["Enums"]["payment_status"]
+      }
+      transition_order_status: {
+        Args: {
+          p_order_id: string
+          p_seller_user_id: string
+          p_to: Database["public"]["Enums"]["order_status"]
+        }
+        Returns: {
+          order_status: Database["public"]["Enums"]["order_status"]
+          from_status: Database["public"]["Enums"]["order_status"]
+        }[]
+      }
     }
     Enums: {
       building_access_type: "open" | "invite"
@@ -758,6 +785,8 @@ export type Database = {
         | "paid"
         | "refunded"
         | "failed"
+        | "refund_pending"
+        | "refund_failed"
       pickup_method: "message_after_order" | "lobby_pickup" | "scheduled_window"
       qr_type: "store" | "product" | "bazaar"
       store_visibility: "qr_only" | "building" | "nearby"
@@ -902,7 +931,15 @@ export const Constants = {
         "cancelled",
       ],
       payment_mode: ["online", "pay_at_pickup"],
-      payment_status: ["unpaid", "pay_at_pickup", "paid", "refunded", "failed"],
+      payment_status: [
+        "unpaid",
+        "pay_at_pickup",
+        "paid",
+        "refunded",
+        "failed",
+        "refund_pending",
+        "refund_failed",
+      ],
       pickup_method: [
         "message_after_order",
         "lobby_pickup",

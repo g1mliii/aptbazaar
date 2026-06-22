@@ -36,7 +36,13 @@ export type TrackedStore = {
 };
 
 export type TrackingLookup =
-  | { status: "ok"; order: TrackedOrder; items: TrackedItem[]; store: TrackedStore }
+  | {
+      status: "ok";
+      order: TrackedOrder;
+      items: TrackedItem[];
+      store: TrackedStore;
+      notesShared: string | null;
+    }
   | { status: "expired" }
   | { status: "unknown" };
 
@@ -49,7 +55,7 @@ export async function fetchOrderByToken(
   return data?.[0] ?? null;
 }
 
-function pickupNoteFor(store: {
+export function pickupNoteFor(store: {
   pickup_method: string;
   pickup_window_label: string | null;
   pickup_public_note: string | null;
@@ -87,7 +93,8 @@ export async function loadTracking(token: string): Promise<TrackingLookup> {
   const secret = createSupabaseSecretClient();
   const [
     { data: items, error: itemsError },
-    { data: store, error: storeError }
+    { data: store, error: storeError },
+    { data: shared }
   ] = await Promise.all([
     secret
       .from("order_items")
@@ -97,7 +104,14 @@ export async function loadTracking(token: string): Promise<TrackingLookup> {
       .from("stores")
       .select("name, slug, pickup_method, pickup_window_label, pickup_public_note")
       .eq("id", order.store_id)
-      .single()
+      .single(),
+    // notes_shared isn't on the get_order_by_token projection (kept stable to avoid type churn), so
+    // read it directly with the secret client now that the token has gated this order.
+    secret
+      .from("orders")
+      .select("notes_shared")
+      .eq("id", order.id)
+      .maybeSingle()
   ]);
 
   // A real order always has at least one item and a store. A failed read here is a transient
@@ -121,6 +135,7 @@ export async function loadTracking(token: string): Promise<TrackingLookup> {
       name: store?.name ?? "the seller",
       slug: store?.slug ?? null,
       pickupNote: store ? pickupNoteFor(store) : null
-    }
+    },
+    notesShared: shared?.notes_shared ?? null
   };
 }

@@ -1,13 +1,26 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+import { sendOrderStatusEmail } from "@/lib/email/order-status";
 import { fieldErrorsFrom } from "@/lib/schemas/field-errors";
-import { orderPlacementSchema } from "@/lib/schemas/order";
+import {
+  orderNotesSchema,
+  orderPlacementSchema,
+  orderStatusTransitionSchema,
+  willRefundOnCancel
+} from "@/lib/schemas/order";
 import { sendOrderConfirmationEmails } from "@/lib/email/order-confirmation";
+import { publishOrderUpdate } from "@/lib/orders/order-stream";
 import { orderRequestHash } from "@/lib/orders/request-hash";
 import { createOrderCheckoutSession } from "@/lib/stripe/checkout";
 import { getConnectedAccount } from "@/lib/stripe/connected-account";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { generateToken } from "@/lib/utils/token";
+
+import { refundOrder } from "./refunds";
 
 // Phase 4.4: customer order placement. The whole insert (orders + order_items +
 // order_tracking_tokens + order_count_week bump) happens inside the place_order RPC
@@ -142,4 +155,215 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
   }
 
   return { ok: true, clearCart: true, token: row.token };
+}
+
+// Phase 6 seller-side order lifecycle. All of these run server-side from the dashboard. They derive
+// the seller from the session (getUser) and never trust a seller id from the client. The status and
+// pay transitions go through pinned SECURITY DEFINER RPCs (migration 0028) so RLS stays load-bearing
+// and a seller can never, e.g., self-declare an online order paid (hard invariant 5).
+
+export type OrderActionResult = { ok: true } | { ok: false; error: string };
+
+/** Notify an order's watchers of the current state, best-effort. */
+async function publishOrderState(orderId: string): Promise<void> {
+  try {
+    const supabase = createSupabaseSecretClient();
+    const { data: order } = await supabase
+      .from("orders")
+      .select("order_status, payment_status")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order) return;
+    await publishOrderUpdate(orderId, {
+      orderStatus: order.order_status,
+      paymentStatus: order.payment_status
+    });
+  } catch {
+    // Publish is decorative; the poll fallback keeps watchers correct.
+  }
+}
+
+/** Move an order along the status machine. The DB function is the source of truth for the legal
+ *  transitions and the same-state no-op. */
+export async function updateOrderStatus(input: unknown): Promise<OrderActionResult> {
+  const parsed = orderStatusTransitionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "That status change isn't allowed." };
+  }
+  const { orderId, to } = parsed.data;
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await server.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Please sign in." };
+  }
+
+  const supabase = createSupabaseSecretClient();
+  const { data, error } = await supabase.rpc("transition_order_status", {
+    p_order_id: orderId,
+    p_seller_user_id: user.id,
+    p_to: to
+  });
+
+  if (error) {
+    if (error.code === "OD403") {
+      return { ok: false, error: "We couldn't find that order." };
+    }
+    if (error.code === "OD409") {
+      return { ok: false, error: "That status change isn't allowed." };
+    }
+    return {
+      ok: false,
+      error: "We couldn't update that order. Try again in a moment."
+    };
+  }
+
+  const row = data?.[0];
+  const from = row?.from_status;
+  const next = row?.order_status;
+
+  // Real transition (not a same-state no-op) and not the silent `new` state → email the customer.
+  // The RPC's same-state no-op is what dedupes a double-click into no second send. The email and the
+  // SSE publish are independent and both best-effort, so fire them together — a slow email round-trip
+  // shouldn't delay watcher tabs, and a hiccup in either must not fail the action.
+  const emailing =
+    from && next && from !== next && next !== "new"
+      ? sendOrderStatusEmail({ orderId, status: next }).catch(() => {})
+      : Promise.resolve();
+  await Promise.all([emailing, publishOrderState(orderId)]);
+  revalidatePath("/dashboard/orders");
+  return { ok: true };
+}
+
+/** Cancel an order. A paid online order is refunded FIRST (so a refund failure aborts the cancel);
+ *  pay-at-pickup / unpaid orders skip straight to the cancelled transition, which restores stock. */
+export async function cancelOrder(orderId: unknown): Promise<OrderActionResult> {
+  const parsed = z.string().uuid().safeParse(orderId);
+  if (!parsed.success) {
+    return { ok: false, error: "We couldn't find that order." };
+  }
+  const id = parsed.data;
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await server.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Please sign in." };
+  }
+
+  // RLS owner policy gates the read; explicit columns, never select * on orders (invariant 6).
+  const { data: order } = await server
+    .from("orders")
+    .select("id, payment_mode, payment_status, order_status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!order) {
+    return { ok: false, error: "We couldn't find that order." };
+  }
+  if (order.order_status === "cancelled") {
+    return { ok: false, error: "This order's already cancelled." };
+  }
+  if (order.order_status === "complete") {
+    return { ok: false, error: "This order's already complete." };
+  }
+
+  // A paid online order must refund before it cancels. refundOrder flips paid → refund_pending;
+  // the cancel transition then leaves stock alone (restore happens on the confirmed refund). If the
+  // refund can't even start, abort so we don't cancel an order whose money is stuck with the seller.
+  if (willRefundOnCancel(order.payment_mode, order.payment_status)) {
+    const refund = await refundOrder(id);
+    if (!refund.ok) {
+      return refund;
+    }
+  }
+
+  return updateOrderStatus({ orderId: id, to: "cancelled" });
+}
+
+/** Seller marks a pay-at-pickup order paid when cash/e-transfer changes hands. Online orders are
+ *  refused at the RPC — Stripe owns their money state. */
+export async function markPaid(orderId: unknown): Promise<OrderActionResult> {
+  const parsed = z.string().uuid().safeParse(orderId);
+  if (!parsed.success) {
+    return { ok: false, error: "We couldn't find that order." };
+  }
+  const id = parsed.data;
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await server.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Please sign in." };
+  }
+
+  const supabase = createSupabaseSecretClient();
+  const { error } = await supabase.rpc("mark_pay_at_pickup_paid", {
+    p_order_id: id,
+    p_seller_user_id: user.id
+  });
+
+  if (error) {
+    if (error.code === "OD403") {
+      return { ok: false, error: "We couldn't find that order." };
+    }
+    if (error.code === "OD409") {
+      return {
+        ok: false,
+        error: "Only a pay-at-pickup order can be marked paid here."
+      };
+    }
+    return {
+      ok: false,
+      error: "We couldn't update that order. Try again in a moment."
+    };
+  }
+
+  await publishOrderState(id);
+  revalidatePath("/dashboard/orders");
+  return { ok: true };
+}
+
+/** Save the seller's private note and/or the shared (customer-visible) note. This is the one place
+ *  a raw RLS UPDATE on orders is appropriate — the owner policy is the tenant guard. */
+export async function updateOrderNotes(input: unknown): Promise<OrderActionResult> {
+  const parsed = orderNotesSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "That note couldn't be saved." };
+  }
+  const { orderId, notesSeller, notesShared } = parsed.data;
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await server.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Please sign in." };
+  }
+
+  const patch: { notes_seller?: string | null; notes_shared?: string | null } = {};
+  if (notesSeller !== undefined) patch.notes_seller = notesSeller;
+  if (notesShared !== undefined) patch.notes_shared = notesShared;
+  if (Object.keys(patch).length === 0) {
+    return { ok: true };
+  }
+
+  const { data, error } = await server
+    .from("orders")
+    .update(patch)
+    .eq("id", orderId)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    return { ok: false, error: "That note couldn't be saved." };
+  }
+  if (!data) {
+    return { ok: false, error: "We couldn't find that order." };
+  }
+
+  revalidatePath("/dashboard/orders");
+  return { ok: true };
 }
