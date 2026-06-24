@@ -69,6 +69,30 @@ export async function qrCacheKey(
   return `qr/${storeId}/${sha}.${qrFormatMeta(inputs.format).ext}`;
 }
 
+export interface BuildingQrCacheInputs {
+  slug: string;
+  accessType: string;
+  inviteCode: string | null;
+  name: string;
+  format: QrFormat;
+}
+
+/** R2 key for building bazaar QR assets. Uses a separate prefix so store and building files never collide. */
+export async function buildingQrCacheKey(
+  buildingId: string,
+  inputs: BuildingQrCacheInputs
+): Promise<string> {
+  const canonical = JSON.stringify({
+    slug: inputs.slug,
+    accessType: inputs.accessType,
+    inviteCode: inputs.inviteCode,
+    name: inputs.name,
+    format: inputs.format
+  });
+  const sha = (await sha256Hex(canonical)).slice(0, 16);
+  return `qr/buildings/${buildingId}/${sha}.${qrFormatMeta(inputs.format).ext}`;
+}
+
 /** All current cache keys for a store across every format — the sweep's "keep" set. */
 export async function qrCacheKeysForStore(
   storeId: string,

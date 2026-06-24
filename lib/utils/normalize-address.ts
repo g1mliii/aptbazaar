@@ -56,3 +56,56 @@ export function normalizeAddress(input: AddressInput): string {
   const postalCode = normalizePostalCode(input.postalCode);
   return `${street}|${postalCode}`;
 }
+
+// Canadian postal (A1A 1A1) and US ZIP (12345 / 12345-6789). The postal code is the load-bearing
+// half of the grouping key, so a free-text address with no detectable postal can't be grouped.
+const CA_POSTAL = /\b([A-Za-z]\d[A-Za-z])\s?(\d[A-Za-z]\d)\b/;
+// Global so we can scan every 5-digit run: a 5-digit civic/house number ("12345 Main St") also
+// matches \d{5}, so we take the LAST run — the ZIP terminates a US address, the house number leads
+// it. A trailing-only strip keeps the house number on the street line (see normalizeContactAddress).
+const US_ZIP = /\b(\d{5})(?:-\d{4})?\b/g;
+const US_ZIP_TRAILING = /\b\d{5}(?:-\d{4})?\s*$/;
+
+/**
+ * Building grouping key from a single free-text contact address (e.g.
+ * "120 Maple St, Toronto, ON M5V 2K7"). The street line is taken as the first comma segment (the
+ * civic + street convention) with any postal token stripped out; the postal code is extracted by
+ * pattern. Returns null when no postal code is present — without it we never risk grouping two
+ * different buildings together. This is the canonical normalizer the building-grouping cron reads
+ * off `stores.normalized_key`; SQL never re-implements it (hard invariant 2).
+ */
+export function normalizeContactAddress(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) {
+    return null;
+  }
+
+  let postalCode: string | null = null;
+  const ca = value.match(CA_POSTAL);
+  if (ca) {
+    postalCode = `${ca[1]}${ca[2]}`;
+  } else {
+    const usMatches = [...value.matchAll(US_ZIP)];
+    const last = usMatches[usMatches.length - 1];
+    if (last) {
+      postalCode = last[1] ?? null;
+    }
+  }
+  if (!postalCode) {
+    return null;
+  }
+
+  const firstSegment = value.split(",")[0] ?? value;
+  // Strip a postal code from the street line, but only a TRAILING US ZIP — a leading 5-digit run is
+  // the house number and must stay (it distinguishes buildings on the same street + postal).
+  const street = firstSegment
+    .replace(CA_POSTAL, " ")
+    .replace(US_ZIP_TRAILING, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!street) {
+    return null;
+  }
+
+  return normalizeAddress({ street, postalCode });
+}

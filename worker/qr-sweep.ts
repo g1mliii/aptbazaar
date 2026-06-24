@@ -5,7 +5,8 @@
 // so the sweep compares metadata against the live row and never has to recompute the content hash.
 // An object is reclaimed when its store is gone or when any of those fields no longer matches (a
 // change re-keys the live asset and orphans the old one). The fonts/ prefix is untouched — we only
-// ever list qr/.
+// ever list qr/. Building QR assets live under qr/buildings/ and are skipped here until they have a
+// building-aware sweep; the store sweep must never interpret "buildings" as a store id.
 
 interface SweepEnv {
   QR_BUCKET?: R2Bucket;
@@ -23,7 +24,15 @@ interface StoreRow {
 function storeIdFromKey(key: string): string | null {
   // qr/<store_id>/<sha>.<ext>
   const parts = key.split("/");
-  return parts.length >= 3 && parts[0] === "qr" ? (parts[1] ?? null) : null;
+  if (parts.length < 3 || parts[0] !== "qr" || parts[1] === "buildings") {
+    return null;
+  }
+  return parts[1] ?? null;
+}
+
+function isBuildingQrKey(key: string): boolean {
+  const parts = key.split("/");
+  return parts.length >= 4 && parts[0] === "qr" && parts[1] === "buildings";
 }
 
 async function fetchStores(
@@ -81,6 +90,7 @@ export async function sweepQrAssets(
     const objects = page.objects.map((object) => ({
       key: object.key,
       meta: object.customMetadata ?? {},
+      isBuilding: isBuildingQrKey(object.key),
       storeId: storeIdFromKey(object.key)
     }));
     scanned += objects.length;
@@ -103,6 +113,9 @@ export async function sweepQrAssets(
 
       const toDelete: string[] = [];
       for (const object of objects) {
+        if (object.isBuilding) {
+          continue;
+        }
         const store = object.storeId ? stores.get(object.storeId) : undefined;
         if (
           !store ||

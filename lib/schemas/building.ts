@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PUBLIC_SLUG_RE } from "@/lib/utils/slug";
+
 import { timestamptz, uuid } from "./common";
 
 export const buildingAccessTypeSchema = z.enum(["open", "invite"]);
@@ -14,7 +16,7 @@ export const buildingRowSchema = z.object({
   display_name: z.string().min(1),
   city: z.string().nullable(),
   postal_code: z.string().nullable(),
-  public_slug: z.string().regex(/^[a-z0-9-]{1,40}$/),
+  public_slug: z.string().regex(PUBLIC_SLUG_RE),
   access_type: buildingAccessTypeSchema,
   invite_code: z.string().nullable(),
   invite_code_rotated_at: timestamptz.nullable(),
@@ -23,11 +25,12 @@ export const buildingRowSchema = z.object({
 
 export type Building = z.infer<typeof buildingRowSchema>;
 
-// Public projection: never carries invite_code (anon must not see the shared secret).
+// Public projection: never carries invite_code, normalized_key, or postal_code.
 export const buildingPublicSchema = buildingRowSchema.omit({
   invite_code: true,
   invite_code_rotated_at: true,
-  normalized_key: true
+  normalized_key: true,
+  postal_code: true
 });
 
 export type BuildingPublic = z.infer<typeof buildingPublicSchema>;

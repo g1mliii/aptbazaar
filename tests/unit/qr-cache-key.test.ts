@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildingQrCacheKey,
   isQrFormat,
   QR_FORMATS,
   qrCacheKey,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/qr/cache-key";
 
 const STORE = "11111111-1111-4111-8111-111111111111";
+const BUILDING = "22222222-2222-4222-8222-222222222222";
 
 describe("isQrFormat", () => {
   it("accepts known formats and rejects others", () => {
@@ -90,5 +92,26 @@ describe("qrCacheKeysForStore", () => {
     );
     expect(keys).toHaveLength(QR_FORMATS.length);
     expect(new Set(keys).size).toBe(QR_FORMATS.length);
+  });
+});
+
+describe("buildingQrCacheKey", () => {
+  it("uses a building-specific prefix and re-keys when invite access changes", async () => {
+    const base = {
+      slug: "bazaar-abc123",
+      accessType: "open",
+      inviteCode: null,
+      name: "Building bazaar",
+      format: "pdf-letter"
+    } as const;
+    const key = await buildingQrCacheKey(BUILDING, base);
+    const inviteKey = await buildingQrCacheKey(BUILDING, {
+      ...base,
+      accessType: "invite",
+      inviteCode: "ABCDEFGH"
+    });
+
+    expect(key).toMatch(new RegExp(`^qr/buildings/${BUILDING}/[0-9a-f]{16}\\.pdf$`));
+    expect(inviteKey).not.toBe(key);
   });
 });

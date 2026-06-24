@@ -2,13 +2,22 @@ import { NextResponse } from "next/server";
 
 import { getQrBucket } from "@/lib/cloudflare/bindings";
 import {
+  buildingQrCacheKey,
   isQrFormat,
   qrCacheKey,
   qrFormatMeta,
   type QrFormat
 } from "@/lib/qr/cache-key";
+import { selectActiveBuilding } from "@/lib/queries/building-membership";
 import { buildFlyerPdf, type FlyerPageSize } from "@/lib/qr/flyer";
-import { storefrontQrPng, storefrontQrSvg, storefrontUrl } from "@/lib/qr/poster";
+import {
+  bazaarUrl,
+  qrPngForUrl,
+  qrSvgForUrl,
+  storefrontQrPng,
+  storefrontQrSvg,
+  storefrontUrl
+} from "@/lib/qr/poster";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // Phase 7.2: authed binary downloads (SVG / PNG / branded PDF flyer). Binary formats can't be
@@ -74,17 +83,112 @@ async function generate(
   }
 }
 
-function downloadName(format: QrFormat, slug: string): string {
+async function generateBuilding(
+  format: QrFormat,
+  building: {
+    public_slug: string;
+    display_name: string;
+    access_type: "open" | "invite";
+    invite_code: string | null;
+  },
+  bucket: R2Bucket | null
+): Promise<Uint8Array> {
+  const url = bazaarUrl(
+    building.public_slug,
+    building.access_type === "invite" ? building.invite_code : null
+  );
+  switch (format) {
+    case "svg":
+      return toBytes(await qrSvgForUrl(url));
+    case "png-512":
+      return qrPngForUrl(url, 512);
+    case "png-1024":
+      return qrPngForUrl(url, 1024);
+    case "pdf-letter":
+    case "pdf-a4": {
+      const qrPng = qrPngForUrl(url, 1024);
+      const [display, body] = await Promise.all([
+        loadFont(bucket, FONT_KEYS.display),
+        loadFont(bucket, FONT_KEYS.body)
+      ]);
+      const pageSize: FlyerPageSize = format === "pdf-a4" ? "a4" : "letter";
+      return buildFlyerPdf({
+        storeName: building.display_name,
+        storefrontUrl: url,
+        caption: "Sellers in your building — scan to see today's drops.",
+        qrPng,
+        pageSize,
+        fonts: { display, body }
+      });
+    }
+  }
+}
+
+function downloadName(
+  format: QrFormat,
+  slug: string,
+  scope: "store" | "building"
+): string {
   const meta = qrFormatMeta(format);
-  const prefix = meta.ext === "pdf" ? "stoop-flyer" : "stoop-qr";
-  return `${prefix}-${slug}.${meta.ext}`;
+  const family = scope === "building" ? "stoop-bazaar" : "stoop";
+  const kind = meta.ext === "pdf" ? "flyer" : "qr";
+  return `${family}-${kind}-${slug}.${meta.ext}`;
+}
+
+// Serve a QR asset: cache read → generate on miss → best-effort cache write → response. Identical
+// for stores and buildings; only the cache key, the bytes generator, the download filename, and the
+// cache metadata differ. Both reclaim-sweep stamps live in customMetadata (Phase 7.6).
+async function serveQrAsset(opts: {
+  bucket: R2Bucket | null;
+  cacheKey: string;
+  contentType: string;
+  downloadName: string;
+  customMetadata: Record<string, string>;
+  generate: () => Promise<Uint8Array>;
+}): Promise<Response> {
+  const { bucket, cacheKey, contentType, customMetadata } = opts;
+  const headers = {
+    "Content-Type": contentType,
+    "Content-Disposition": `attachment; filename="${opts.downloadName}"`,
+    "Cache-Control": "private, max-age=3600"
+  };
+
+  if (bucket) {
+    try {
+      const cached = await bucket.get(cacheKey);
+      if (cached) {
+        return new Response(cached.body, { headers });
+      }
+    } catch {
+      // Cache miss-on-error: fall through and regenerate.
+    }
+  }
+
+  const bytes = await opts.generate();
+
+  if (bucket) {
+    try {
+      await bucket.put(cacheKey, bytes, {
+        httpMetadata: { contentType },
+        customMetadata
+      });
+    } catch {
+      // Best-effort cache write — the seller still gets their file.
+    }
+  }
+
+  // The Uint8Array is a valid BufferSource body; the cast sidesteps the ArrayBuffer vs
+  // ArrayBufferLike generic mismatch in the DOM BodyInit type.
+  return new Response(bytes as BodyInit, { headers });
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const format = new URL(request.url).searchParams.get("format") ?? "";
+  const searchParams = new URL(request.url).searchParams;
+  const format = searchParams.get("format") ?? "";
   if (!isQrFormat(format)) {
     return NextResponse.json({ error: "Pick a download format." }, { status: 400 });
   }
+  const scope = searchParams.get("scope") === "building" ? "building" : "store";
 
   const supabase = await createSupabaseServerClient();
   const {
@@ -106,6 +210,57 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const bucket = getQrBucket();
+  const { contentType } = qrFormatMeta(format);
+
+  if (scope === "building") {
+    const { data: membership, error: membershipError } = await selectActiveBuilding(
+      supabase,
+      store.id
+    );
+    if (membershipError) {
+      return NextResponse.json(
+        { error: "We couldn't find your building bazaar." },
+        { status: 500 }
+      );
+    }
+
+    const building = membership?.buildings;
+    if (!membership?.building_id || !building) {
+      return NextResponse.json(
+        { error: "Your stoop isn't grouped into a building yet." },
+        { status: 404 }
+      );
+    }
+    if (building.access_type === "invite" && !building.invite_code) {
+      return NextResponse.json(
+        { error: "Rotate the invite code before printing this poster." },
+        { status: 409 }
+      );
+    }
+
+    const cacheKey = await buildingQrCacheKey(membership.building_id, {
+      slug: building.public_slug,
+      accessType: building.access_type,
+      inviteCode: building.invite_code,
+      name: building.display_name,
+      format
+    });
+
+    return serveQrAsset({
+      bucket,
+      cacheKey,
+      contentType,
+      downloadName: downloadName(format, building.public_slug, "building"),
+      customMetadata: {
+        scope: "building",
+        slug: building.public_slug,
+        accessType: building.access_type,
+        name: building.display_name
+      },
+      generate: () => generateBuilding(format, building, bucket)
+    });
+  }
+
   const cacheKey = await qrCacheKey(store.id, {
     slug: store.slug,
     visibility: store.visibility,
@@ -113,43 +268,18 @@ export async function GET(request: Request): Promise<Response> {
     description: store.description,
     format
   });
-  const { contentType } = qrFormatMeta(format);
-  const headers = {
-    "Content-Type": contentType,
-    "Content-Disposition": `attachment; filename="${downloadName(format, store.slug)}"`,
-    "Cache-Control": "private, max-age=3600"
-  };
 
-  if (bucket) {
-    try {
-      const cached = await bucket.get(cacheKey);
-      if (cached) {
-        return new Response(cached.body, { headers });
-      }
-    } catch {
-      // Cache miss-on-error: fall through and regenerate.
-    }
-  }
-
-  const bytes = await generate(format, store, bucket);
-
-  if (bucket) {
-    try {
-      await bucket.put(cacheKey, bytes, {
-        httpMetadata: { contentType },
-        customMetadata: {
-          slug: store.slug,
-          visibility: store.visibility,
-          name: store.name,
-          description: store.description ?? ""
-        }
-      });
-    } catch {
-      // Best-effort cache write — the seller still gets their file.
-    }
-  }
-
-  // The Uint8Array is a valid BufferSource body; the cast sidesteps the ArrayBuffer vs
-  // ArrayBufferLike generic mismatch in the DOM BodyInit type.
-  return new Response(bytes as BodyInit, { headers });
+  return serveQrAsset({
+    bucket,
+    cacheKey,
+    contentType,
+    downloadName: downloadName(format, store.slug, "store"),
+    customMetadata: {
+      slug: store.slug,
+      visibility: store.visibility,
+      name: store.name,
+      description: store.description ?? ""
+    },
+    generate: () => generate(format, store, bucket)
+  });
 }

@@ -4,6 +4,9 @@
 
 const MAX_LENGTH = 40;
 
+/** The shape every public slug (store + building bazaar) must match: lowercase alnum/hyphen, 1–40. */
+export const PUBLIC_SLUG_RE = /^[a-z0-9-]{1,40}$/;
+
 // Words that collide with our own routes, plus brand/authority terms we never want a seller to
 // claim as a storefront URL (impersonation). `_next` can never be produced by slugify
 // (underscores are stripped) but is listed for completeness.

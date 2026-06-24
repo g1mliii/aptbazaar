@@ -57,6 +57,15 @@ describe("sweepQrAssets", () => {
                 name: "Maple Bakery",
                 description: "Saturday loaves"
               }
+            },
+            {
+              key: "qr/buildings/building-live/current.pdf",
+              customMetadata: {
+                scope: "building",
+                slug: "bazaar-abc123",
+                accessType: "open",
+                name: "Building bazaar"
+              }
             }
           ]
         })
@@ -83,7 +92,7 @@ describe("sweepQrAssets", () => {
         NEXT_PUBLIC_SUPABASE_URL: SUPABASE_URL,
         SUPABASE_SECRET_KEY: SERVICE_KEY
       })
-    ).resolves.toEqual({ scanned: 3, deleted: 2 });
+    ).resolves.toEqual({ scanned: 4, deleted: 2 });
 
     expect(bucket.list).toHaveBeenNthCalledWith(1, {
       prefix: "qr/",

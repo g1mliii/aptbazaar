@@ -1,4 +1,5 @@
 import { getSeller } from "@/lib/auth/session";
+import { selectActiveBuilding } from "@/lib/queries/building-membership";
 import { getConnectedAccount } from "@/lib/stripe/connected-account";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -25,13 +26,24 @@ export default async function SettingsPage() {
     stripeReady = connected?.charges_enabled ?? false;
   }
 
+  // The building the seller belongs to, if any. RLS (buildings_member_select) lets a member read the
+  // full row including the shared invite_code, so the admin block can show / rotate it.
+  let building: {
+    public_slug: string;
+    display_name: string;
+    access_type: "open" | "invite";
+    invite_code: string | null;
+  } | null = null;
+  if (store) {
+    const { data: membership } = await selectActiveBuilding(supabase, store.id);
+    building = membership?.buildings ?? null;
+  }
+
   if (!store || !seller) {
     return (
       <section className="mx-auto max-w-2xl">
         <h1 className="font-display text-36 leading-none text-ink">Settings</h1>
-        <p className="mt-2 text-15 text-ink-2">
-          Your stoop is still being set up.
-        </p>
+        <p className="mt-2 text-15 text-ink-2">Your stoop is still being set up.</p>
       </section>
     );
   }
@@ -39,6 +51,7 @@ export default async function SettingsPage() {
   return (
     <SettingsScreen
       store={store}
+      building={building}
       contact={{
         display_name: seller.display_name,
         contact_email: seller.contact_email,

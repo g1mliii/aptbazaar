@@ -7,10 +7,10 @@ import type {
   StorefrontProduct,
   StorefrontStore
 } from "@/app/components/storefront/types";
-import { appEnvironment } from "@/lib/env";
 import { storeChargesEnabled } from "@/lib/stripe/connected-account";
 import { createSupabaseAnonClient } from "@/lib/supabase/anon";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
+import { isTestSupabaseConfigError } from "@/lib/supabase/test-config";
 
 import { Storefront } from "./storefront";
 
@@ -26,18 +26,6 @@ const PRODUCT_COLUMNS =
   "id, name, description, price_cents, image_url, qty_available, allergens";
 
 type StoreActiveRow = Omit<StorefrontStore, never> & { is_active: boolean };
-
-function isTestSupabaseConfigError(error: unknown): boolean {
-  if (appEnvironment !== "test" || !(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    error.message.includes("NEXT_PUBLIC_SUPABASE_URL is required") ||
-    error.message.includes("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required") ||
-    error.message.includes("Invalid supabaseUrl")
-  );
-}
 
 // Happy path reads through the anon client so RLS stays load-bearing — it returns the store only
 // when it's active, and only its active products. Wrapped in cache() so generateMetadata and the
@@ -75,6 +63,66 @@ const loadActiveStore = cache(async function loadActiveStore(
   if (productsError) throw productsError;
 
   return { store, products: products ?? [] };
+});
+
+// Phase 8.3: building-mates for the "Also available in this building" row. A store appears in a
+// bazaar only when it has an active membership (qr_only stores never do), so membership presence is
+// the opt-in signal — no need to read the store's visibility. anon RLS keeps this to active members
+// of the same building and never returns any PII. Returns null for qr_only / solo buildings so the
+// section is omitted entirely.
+export interface BuildingMate {
+  slug: string;
+  name: string;
+  category: string | null;
+  logo_url: string | null;
+}
+
+const loadBuildingMates = cache(async function loadBuildingMates(
+  storeId: string
+): Promise<{ buildingSlug: string; mates: BuildingMate[] } | null> {
+  let supabase: ReturnType<typeof createSupabaseAnonClient>;
+  try {
+    supabase = createSupabaseAnonClient();
+  } catch (error) {
+    if (isTestSupabaseConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  const { data: membership } = await supabase
+    .from("building_memberships")
+    .select("building_id, buildings(public_slug)")
+    .eq("store_id", storeId)
+    .eq("status", "active")
+    .maybeSingle();
+  const buildingSlug = membership?.buildings?.public_slug;
+  if (!membership?.building_id || !buildingSlug) {
+    return null;
+  }
+
+  const { data: mateRows } = await supabase
+    .from("building_memberships")
+    .select("stores!inner(slug, name, category, logo_url)")
+    .eq("building_id", membership.building_id)
+    .eq("status", "active")
+    .neq("store_id", storeId)
+    .limit(5);
+
+  const mates = (mateRows ?? [])
+    .map((row) => row.stores)
+    .filter((store): store is NonNullable<typeof store> => Boolean(store))
+    .map((store) => ({
+      slug: store.slug,
+      name: store.name,
+      category: store.category,
+      logo_url: store.logo_url
+    }));
+
+  if (mates.length === 0) {
+    return null;
+  }
+  return { buildingSlug, mates };
 });
 
 // Fallback only to tell "closed" from "never existed": anon RLS hides inactive stores entirely,
@@ -124,9 +172,13 @@ export default async function StorefrontPage({
   if (active) {
     // Whether to offer the "Pay online" path. Read server-side via the secret client because
     // connected_accounts is service-role only and never reaches a public surface.
-    const onlineReady = await storeChargesEnabled(active.store.id);
+    const [onlineReady, buildingMates] = await Promise.all([
+      storeChargesEnabled(active.store.id),
+      loadBuildingMates(active.store.id)
+    ]);
     return (
       <Storefront
+        buildingMates={buildingMates}
         onlineReady={onlineReady}
         products={active.products}
         store={active.store}

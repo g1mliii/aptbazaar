@@ -566,6 +566,7 @@ export type Database = {
           is_active: boolean;
           logo_url: string | null;
           name: string;
+          normalized_key: string | null;
           order_count_week: number;
           pickup_method: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note: string | null;
@@ -587,6 +588,7 @@ export type Database = {
           is_active?: boolean;
           logo_url?: string | null;
           name: string;
+          normalized_key?: string | null;
           order_count_week?: number;
           pickup_method?: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note?: string | null;
@@ -608,6 +610,7 @@ export type Database = {
           is_active?: boolean;
           logo_url?: string | null;
           name?: string;
+          normalized_key?: string | null;
           order_count_week?: number;
           pickup_method?: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note?: string | null;
@@ -749,6 +752,28 @@ export type Database = {
           total_cents: number;
           updated_at: string;
         }[];
+      };
+      get_building_product_highlights: {
+        Args: { p_building_id: string; p_drop_limit?: number };
+        Returns: {
+          section: string;
+          store_id: string;
+          product_id: string;
+          product_name: string;
+          price_cents: number;
+          image_url: string | null;
+          qty_available: number | null;
+          shop_name: string;
+          shop_slug: string;
+        }[];
+      };
+      sync_buildings_and_memberships: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
+      };
+      sync_store_building_membership: {
+        Args: { p_store_id: string };
+        Returns: undefined;
       };
       place_order: {
         Args: {

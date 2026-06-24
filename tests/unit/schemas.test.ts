@@ -52,6 +52,7 @@ describe("row schemas accept representative rows", () => {
         pickup_private_note: null,
         accept_pay_at_pickup: true,
         order_count_week: 0,
+        normalized_key: null,
         first_scan_at: null,
         first_scan_seen_at: null,
         created_at: TS,

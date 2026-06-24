@@ -1,10 +1,12 @@
 "use client";
 
-import { ShoppingBag } from "lucide-react";
+import { ChevronRight, ShoppingBag } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import type { BuildingMate } from "@/app/s/[slug]/page";
 import { Logo } from "@/app/components/brand/logo";
 import { SellerPreviewBar } from "@/app/s/[slug]/preview-bar";
 import { CartDrawer } from "@/app/components/storefront/cart-drawer";
@@ -25,11 +27,13 @@ type View = "shop" | "cart" | "checkout";
 export function Storefront({
   store,
   products,
-  onlineReady
+  onlineReady,
+  buildingMates
 }: {
   store: StorefrontStore;
   products: StorefrontProduct[];
   onlineReady: boolean;
+  buildingMates: { buildingSlug: string; mates: BuildingMate[] } | null;
 }) {
   const router = useRouter();
   const cart = useCart(store.slug, products);
@@ -80,6 +84,61 @@ export function Storefront({
             storeId={store.id}
           />
         </div>
+
+        {buildingMates ? (
+          <section className="mt-8">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="font-display text-20 leading-none text-ink">
+                Also in this building
+              </h2>
+              <Link
+                href={`/b/${buildingMates.buildingSlug}`}
+                className="inline-flex items-center gap-0.5 font-mono text-12 uppercase tracking-[0.06em] text-verdigris focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris"
+              >
+                See the bazaar
+                <ChevronRight
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 stroke-[1.75]"
+                />
+              </Link>
+            </div>
+            <div className="mt-3 flex gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none]">
+              {buildingMates.mates.map((mate) => (
+                <Link
+                  key={mate.slug}
+                  href={`/s/${mate.slug}`}
+                  className="flex w-[136px] shrink-0 flex-col overflow-hidden rounded-md border border-line bg-surface shadow-sm transition-[box-shadow,transform] duration-fast ease-stoop hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris active:translate-y-px"
+                >
+                  <div className="relative flex aspect-square items-center justify-center bg-paper-2">
+                    {mate.logo_url ? (
+                      <Image
+                        src={mate.logo_url}
+                        alt={mate.name}
+                        fill
+                        sizes="136px"
+                        className="object-cover"
+                      />
+                    ) : (
+                      <span className="font-display text-36 leading-none text-ink-3">
+                        {mate.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-2.5">
+                    <p className="truncate font-sans text-13 font-semibold text-ink">
+                      {mate.name}
+                    </p>
+                    {mate.category ? (
+                      <p className="mt-0.5 truncate font-mono text-12 uppercase tracking-[0.06em] text-ink-3">
+                        {mate.category}
+                      </p>
+                    ) : null}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <footer className="mt-10 border-t border-line pt-6 text-center">
           <Link

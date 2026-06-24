@@ -1,14 +1,23 @@
 "use client";
 
-import { AlertCircle, Check } from "lucide-react";
+import { AlertCircle, Check, Download, FileText } from "lucide-react";
 import Link from "next/link";
-import { useId, useState, useTransition, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode
+} from "react";
 
 import { Button } from "@/app/components/ui/button";
 import { Dialog } from "@/app/components/ui/dialog";
 import { Input, Select, Textarea, Toggle } from "@/app/components/ui/form";
 import { Toast } from "@/app/components/ui/toast";
 import { ImageUpload } from "@/app/components/upload/image-upload";
+import { openBuildingAccess, rotateInviteCode } from "@/lib/actions/building";
 import {
   deleteAccount,
   setStoreActive,
@@ -17,6 +26,13 @@ import {
 } from "@/lib/actions/settings";
 import type { PickupMethod, StoreVisibility } from "@/lib/schemas/store";
 import { cn } from "@/lib/utils/cn";
+
+type BuildingAdmin = {
+  public_slug: string;
+  display_name: string;
+  access_type: "open" | "invite";
+  invite_code: string | null;
+};
 
 type StoreSettings = {
   id: string;
@@ -40,10 +56,26 @@ type Contact = {
   contact_address: string | null;
 };
 
-const VISIBILITY_OPTIONS: { value: StoreVisibility; label: string }[] = [
-  { value: "qr_only", label: "QR only" },
-  { value: "building", label: "Visible in my building" },
-  { value: "nearby", label: "Visible to nearby buildings" }
+const VISIBILITY_OPTIONS: {
+  value: StoreVisibility;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "qr_only",
+    label: "QR only",
+    description: "Only people with your link or QR code find your stoop."
+  },
+  {
+    value: "building",
+    label: "Visible in my building",
+    description: "Show up in your building's bazaar alongside your neighbors."
+  },
+  {
+    value: "nearby",
+    label: "Visible to nearby buildings",
+    description: "Same as building for now — nearby discovery is coming later."
+  }
 ];
 
 const PICKUP_OPTIONS: { value: PickupMethod; label: string }[] = [
@@ -52,11 +84,20 @@ const PICKUP_OPTIONS: { value: PickupMethod; label: string }[] = [
   { value: "scheduled_window", label: "Set a pickup window" }
 ];
 
+const BUILDING_DOWNLOADS = [
+  { format: "svg", label: "SVG" },
+  { format: "png-1024", label: "PNG" },
+  { format: "pdf-letter", label: "PDF letter" },
+  { format: "pdf-a4", label: "PDF A4" }
+] as const;
+
 export function SettingsScreen({
+  building,
   contact,
   store,
   stripeReady
 }: {
+  building: BuildingAdmin | null;
   contact: Contact;
   store: StoreSettings;
   stripeReady: boolean;
@@ -72,6 +113,7 @@ export function SettingsScreen({
 
       <StripeSection ready={stripeReady} />
       <StoreInfoSection store={store} />
+      {building ? <BuildingSection building={building} /> : null}
       <ContactSection contact={contact} />
       <DangerSection initialActive={store.is_active} />
     </section>
@@ -114,7 +156,11 @@ function StripeSection({ ready }: { ready: boolean }) {
             ready ? "bg-verdigris text-surface" : "bg-marigold text-ink"
           )}
         >
-          {ready ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {ready ? (
+            <Check aria-hidden="true" className="h-4 w-4" />
+          ) : (
+            <AlertCircle aria-hidden="true" className="h-4 w-4" />
+          )}
         </span>
         <div className="flex-1">
           <p className="text-14 font-semibold text-ink">
@@ -129,7 +175,9 @@ function StripeSection({ ready }: { ready: boolean }) {
           </p>
         </div>
         <Button asChild variant={ready ? "secondary" : "ink"} size="sm">
-          <Link href="/dashboard/money">{ready ? "Open Money" : "Connect in Money"}</Link>
+          <Link href="/dashboard/money">
+            {ready ? "Open Money" : "Connect in Money"}
+          </Link>
         </Button>
       </div>
       {!ready ? (
@@ -158,6 +206,30 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const visibilityRadios = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Arrow keys move and select within the radiogroup (ARIA radio semantics); roving tabindex keeps a
+  // single tab stop. Without this the three buttons announce as a radio group but behave like
+  // separate buttons for keyboard and screen-reader users.
+  function onVisibilityKeyDown(event: ReactKeyboardEvent, index: number) {
+    const count = VISIBILITY_OPTIONS.length;
+    let next: number | null = null;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      next = (index + 1) % count;
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      next = (index - 1 + count) % count;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = count - 1;
+    }
+    if (next === null) {
+      return;
+    }
+    event.preventDefault();
+    setVisibility(VISIBILITY_OPTIONS[next]!.value);
+    visibilityRadios.current[next]?.focus();
+  }
 
   function save() {
     setErrors({});
@@ -293,24 +365,51 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
           <span className="text-14 text-ink">Accept pay-at-pickup orders</span>
         </label>
 
-        <Field label="Visibility">
-          <div className="flex flex-wrap gap-1.5">
-            {VISIBILITY_OPTIONS.map((option) => {
+        <Field label="Visibility" error={errors.visibility}>
+          <div
+            className="flex flex-col gap-2"
+            role="radiogroup"
+            aria-label="Visibility"
+          >
+            {VISIBILITY_OPTIONS.map((option, index) => {
               const selected = visibility === option.value;
               return (
                 <button
                   key={option.value}
                   type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  ref={(el) => {
+                    visibilityRadios.current[index] = el;
+                  }}
                   onClick={() => setVisibility(option.value)}
-                  aria-pressed={selected}
+                  onKeyDown={(event) => onVisibilityKeyDown(event, index)}
                   className={cn(
-                    "rounded-pill border px-3 py-1 text-12 transition-colors duration-fast ease-stoop",
+                    "flex items-start gap-3 rounded-md border px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-fast ease-stoop focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris active:translate-y-px",
                     selected
-                      ? "border-ink bg-ink text-paper"
-                      : "border-line bg-surface text-ink-2 hover:bg-paper-2"
+                      ? "border-verdigris bg-verdigris-3"
+                      : "border-line bg-surface hover:bg-paper-2"
                   )}
                 >
-                  {option.label}
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-pill border",
+                      selected ? "border-verdigris bg-verdigris" : "border-line-strong"
+                    )}
+                  >
+                    {selected ? (
+                      <Check className="h-3 w-3 text-surface" aria-hidden="true" />
+                    ) : null}
+                  </span>
+                  <span>
+                    <span className="block text-14 font-semibold text-ink">
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-12 text-ink-2">
+                      {option.description}
+                    </span>
+                  </span>
                 </button>
               );
             })}
@@ -328,6 +427,203 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
           {formError ? <Toast tone="danger">{formError}</Toast> : null}
         </div>
       </div>
+    </SectionCard>
+  );
+}
+
+function BuildingSection({ building }: { building: BuildingAdmin }) {
+  const [accessType, setAccessType] = useState(building.access_type);
+  const [code, setCode] = useState(building.invite_code);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current !== null) {
+        window.clearTimeout(copiedTimer.current);
+      }
+    };
+  }, []);
+
+  function rotate() {
+    setError(null);
+    startTransition(async () => {
+      const result = await rotateInviteCode(confirmText);
+      if (result.ok) {
+        setAccessType("invite");
+        setCode(result.code);
+        setConfirmOpen(false);
+        setConfirmText("");
+      } else {
+        setError(result.error);
+      }
+    });
+  }
+
+  function open() {
+    setError(null);
+    startTransition(async () => {
+      const result = await openBuildingAccess();
+      if (result.ok) {
+        setAccessType("open");
+        setCode(null);
+      } else {
+        setError(result.error);
+      }
+    });
+  }
+
+  function copyCode() {
+    if (!code) return;
+    void navigator.clipboard?.writeText(code).then(() => {
+      setCopied(true);
+      if (copiedTimer.current !== null) {
+        window.clearTimeout(copiedTimer.current);
+      }
+      copiedTimer.current = window.setTimeout(() => {
+        setCopied(false);
+        copiedTimer.current = null;
+      }, 1500);
+    });
+  }
+
+  return (
+    <SectionCard
+      title="Building bazaar"
+      description={`Your stoop is grouped into ${building.display_name}. Manage who can find the bazaar.`}
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Bazaar page">
+          <Input
+            value={`/b/${building.public_slug}`}
+            readOnly
+            numeric
+            className="text-left"
+          />
+        </Field>
+
+        {accessType === "invite" ? (
+          <div className="flex flex-col gap-3 rounded-md border border-line bg-paper-2 p-4">
+            <div>
+              <p className="text-14 font-semibold text-ink">Invite-only</p>
+              <p className="mt-0.5 text-12 text-ink-2">
+                Neighbors need this code to open the bazaar. It&apos;s printed on the
+                building poster.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="rounded-md border border-line bg-surface px-3 py-2 font-mono text-16 tracking-[0.18em] tabular-nums text-ink">
+                {code ?? "—"}
+              </span>
+              <Button variant="secondary" size="sm" onClick={copyCode} disabled={!code}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setConfirmOpen(true)}
+                disabled={isPending}
+              >
+                Rotate invite code
+              </Button>
+              <Button variant="ghost" size="sm" onClick={open} disabled={isPending}>
+                Make bazaar open
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-md border border-line bg-paper-2 p-4">
+            <div>
+              <p className="text-14 font-semibold text-ink">Open</p>
+              <p className="mt-0.5 text-12 text-ink-2">
+                Anyone with the link or a building poster can browse the bazaar.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirmOpen(true)}
+              disabled={isPending}
+            >
+              Make it invite-only
+            </Button>
+          </div>
+        )}
+
+        <div className="rounded-md border border-line bg-surface p-4">
+          <p className="text-14 font-semibold text-ink">Building poster</p>
+          <p className="mt-0.5 text-12 text-ink-2">
+            Print this for the lobby so neighbors can scan into the bazaar.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {BUILDING_DOWNLOADS.map(({ format, label }) => {
+              const Icon = format.startsWith("pdf") ? FileText : Download;
+              return (
+                <Button asChild key={format} size="sm" variant="secondary">
+                  <a download href={`/api/qr?scope=building&format=${format}`}>
+                    <Icon aria-hidden="true" />
+                    {label}
+                  </a>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
+        {error ? <Toast tone="danger">{error}</Toast> : null}
+      </div>
+
+      {confirmOpen ? (
+        <Dialog
+          open
+          onClose={() => setConfirmOpen(false)}
+          title={
+            accessType === "invite"
+              ? "Rotate the invite code?"
+              : "Make this bazaar invite-only?"
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <p className="text-14 text-ink-2">
+              {accessType === "invite"
+                ? "Every printed poster and saved link with the old code stops working. You'll need to reprint and reshare. "
+                : "Neighbors will need the code to open the bazaar. "}
+              Type <b className="font-mono text-ink">rotate</b> to confirm.
+            </p>
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="rotate"
+              aria-label="Type rotate to confirm"
+            />
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmOpen(false)}
+                disabled={isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={rotate}
+                disabled={isPending || confirmText.trim().toLowerCase() !== "rotate"}
+              >
+                {isPending
+                  ? "Working…"
+                  : accessType === "invite"
+                    ? "Rotate code"
+                    : "Make invite-only"}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
     </SectionCard>
   );
 }

@@ -27,6 +27,7 @@ export interface FlyerInput {
   storeName: string;
   tagline?: string | null;
   storefrontUrl: string;
+  caption?: string;
   qrPng: Uint8Array;
   pageSize: FlyerPageSize;
   fonts?: FlyerFonts;
@@ -189,7 +190,7 @@ export async function buildFlyerPdf(input: FlyerInput): Promise<Uint8Array> {
   // Call to action + URL near the bottom (kit voice).
   drawCentered(
     page,
-    `Scan to order from ${input.storeName}.`,
+    input.caption ?? `Scan to order from ${input.storeName}.`,
     bodyFont,
     16,
     cardY - 40,

@@ -6,6 +6,8 @@ vi.mock("server-only", () => ({}));
 
 const {
   brandedStorefrontQrSvg,
+  bazaarUrl,
+  qrPngForUrl,
   shareUrl,
   storefrontQrPng,
   storefrontQrSvg,
@@ -31,6 +33,13 @@ describe("storefront URLs", () => {
   it("tags share links with the channel", () => {
     expect(shareUrl("maple-bakery", "instagram")).toBe(
       `${BASE}/s/maple-bakery?src=instagram`
+    );
+  });
+
+  it("builds building bazaar URLs with optional invite codes", () => {
+    expect(bazaarUrl("bazaar-abc123")).toBe(`${BASE}/b/bazaar-abc123`);
+    expect(bazaarUrl("bazaar-abc123", "ABCD1234")).toBe(
+      `${BASE}/b/bazaar-abc123?code=ABCD1234`
     );
   });
 });
@@ -170,5 +179,12 @@ describe("storefrontQrPng", () => {
         expect(dark).toBe(matrix.data[row * n + col] === 1);
       }
     }
+  });
+
+  it("can rasterize a building bazaar URL", () => {
+    const png = qrPngForUrl(`${BASE}/b/bazaar-abc123?code=ABCD1234`, 256);
+    const { width, height } = decodePng(png);
+    expect(width).toBe(height);
+    expect(width).toBeGreaterThan(0);
   });
 });

@@ -6,13 +6,17 @@ import { z } from "zod";
 
 import { resolveReadyImageUploadUrl } from "@/lib/actions/images";
 import { writeAuditLog } from "@/lib/audit/log";
+import { selectPrimaryStoreId } from "@/lib/queries/store";
 import { phoneE164 } from "@/lib/schemas/common";
 import { fieldErrorsFrom } from "@/lib/schemas/field-errors";
 import { pickupMethodSchema, storeVisibilitySchema } from "@/lib/schemas/store";
 import { screenStoreName } from "@/lib/security/store-name";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { containsLikelyUnitNumber } from "@/lib/utils/normalize-address";
+import {
+  containsLikelyUnitNumber,
+  normalizeContactAddress
+} from "@/lib/utils/normalize-address";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, TablesUpdate } from "@/lib/supabase/database.types";
 
@@ -69,14 +73,31 @@ const contactSchema = z.object({
   contact_address: z.string().trim().max(200).optional().or(z.literal(""))
 });
 
-async function currentStoreId(supabase: Db): Promise<string | null> {
-  const { data } = await supabase
-    .from("stores")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1)
+// Re-group a single store into its building bazaar right away, so a visibility or address change is
+// reflected on the next bazaar page load without waiting for the nightly cron (Phase 8.1/8.4). The
+// grouping RPC is service-role only; the cron is the backstop, so a transient failure here is
+// swallowed rather than blocking the seller's save.
+async function syncStoreMembership(storeId: string): Promise<void> {
+  try {
+    const secret = createSupabaseSecretClient();
+    await secret.rpc("sync_store_building_membership", { p_store_id: storeId });
+  } catch {
+    // Best-effort: the nightly sync_buildings_and_memberships() cron reconciles it.
+  }
+}
+
+// The grouping key is derived from the seller's single contact address. A store created before this
+// column existed carries a null key, so a visibility change must backfill it from the saved address
+// (otherwise the sync RPC sees a null key and the store can never join its building bazaar).
+async function buildingKeyForUser(supabase: Db, userId: string): Promise<string | null> {
+  const { data: seller } = await supabase
+    .from("sellers")
+    .select("contact_address")
+    .eq("user_id", userId)
     .maybeSingle();
-  return data?.id ?? null;
+  return seller?.contact_address
+    ? normalizeContactAddress(seller.contact_address)
+    : null;
 }
 
 export async function updateStoreSettings(input: unknown): Promise<SettingsResult> {
@@ -94,9 +115,26 @@ export async function updateStoreSettings(input: unknown): Promise<SettingsResul
   }
 
   const supabase = await createSupabaseServerClient();
-  const storeId = await currentStoreId(supabase);
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Please sign in." };
+  }
+  const storeId = await selectPrimaryStoreId(supabase);
   if (!storeId) {
     return { ok: false, error: "We couldn't find your store." };
+  }
+
+  const normalizedKey = await buildingKeyForUser(supabase, user.id);
+  if (parsed.data.visibility !== "qr_only" && !normalizedKey) {
+    return {
+      ok: false,
+      fieldErrors: {
+        visibility:
+          "Add a mailing address with a postal or ZIP code before joining your building bazaar."
+      }
+    };
   }
 
   const updatePayload: StoreUpdate = {
@@ -107,7 +145,10 @@ export async function updateStoreSettings(input: unknown): Promise<SettingsResul
     pickup_method: parsed.data.pickup_method,
     pickup_window_label: parsed.data.pickup_window_label || null,
     pickup_public_note: parsed.data.pickup_public_note ?? null,
-    accept_pay_at_pickup: parsed.data.accept_pay_at_pickup
+    accept_pay_at_pickup: parsed.data.accept_pay_at_pickup,
+    // Backfill/refresh the grouping key from the saved contact address as part of this same write, so
+    // the sync below always runs against a current key — never a stale null from a pre-feature store.
+    normalized_key: normalizedKey
   };
 
   if (parsed.data.logo_upload_id) {
@@ -132,6 +173,9 @@ export async function updateStoreSettings(input: unknown): Promise<SettingsResul
   if (error) {
     return { ok: false, error: "We couldn't save your changes." };
   }
+
+  // A visibility change flips this store in/out of its building bazaar — recompute now (no cron lag).
+  await syncStoreMembership(storeId);
 
   if (nameScreen.action !== "allow") {
     try {
@@ -169,17 +213,53 @@ export async function updateContactInfo(input: unknown): Promise<SettingsResult>
     return { ok: false, error: "Please sign in." };
   }
 
+  // The contact address is the source of the building grouping key. Recompute it here (the canonical
+  // TS normalizer) so SQL never re-implements the regex (hard invariant 2). A non-empty address that
+  // yields no key would silently null the key and evict the seller from their building bazaar on the
+  // next page load — so reject it up front with a clear fix instead of saving a broken state.
+  const contactAddress = parsed.data.contact_address || null;
+  const normalizedKey = contactAddress ? normalizeContactAddress(contactAddress) : null;
+  if (contactAddress && !normalizedKey) {
+    return {
+      ok: false,
+      fieldErrors: {
+        contact_address:
+          "Add a postal or ZIP code so we can group you with your building."
+      }
+    };
+  }
+
   const { error } = await supabase
     .from("sellers")
     .update({
       display_name: parsed.data.display_name,
       contact_phone_e164: parsed.data.contact_phone_e164 ?? null,
-      contact_address: parsed.data.contact_address || null
+      contact_address: contactAddress
     })
     .eq("user_id", user.id);
 
   if (error) {
     return { ok: false, error: "We couldn't save your changes." };
+  }
+
+  // Stamp the key on the seller's store(s), then re-group each store's building membership. A failed
+  // key write must not report success — the store would keep a stale key and the nightly cron, which
+  // reads the same column, would never correct it.
+  const { data: ownedStores } = await supabase
+    .from("stores")
+    .select("id")
+    .order("created_at", { ascending: true });
+  if (ownedStores && ownedStores.length > 0) {
+    const ids = ownedStores.map((s) => s.id);
+    const { error: keyError } = await supabase
+      .from("stores")
+      .update({ normalized_key: normalizedKey })
+      .in("id", ids);
+    if (keyError) {
+      return { ok: false, error: "We couldn't save your changes." };
+    }
+    // Independent per-store RPCs — fan them out rather than awaiting one round-trip at a time.
+    await Promise.all(ids.map((id) => syncStoreMembership(id)));
   }
 
   revalidatePath("/dashboard/settings");
@@ -188,7 +268,7 @@ export async function updateContactInfo(input: unknown): Promise<SettingsResult>
 
 export async function setStoreActive(isActive: boolean): Promise<SettingsResult> {
   const supabase = await createSupabaseServerClient();
-  const storeId = await currentStoreId(supabase);
+  const storeId = await selectPrimaryStoreId(supabase);
   if (!storeId) {
     return { ok: false, error: "We couldn't find your store." };
   }
@@ -199,6 +279,7 @@ export async function setStoreActive(isActive: boolean): Promise<SettingsResult>
   if (error) {
     return { ok: false, error: "We couldn't update your store." };
   }
+  await syncStoreMembership(storeId);
   revalidatePath("/dashboard/settings");
   return { ok: true };
 }
