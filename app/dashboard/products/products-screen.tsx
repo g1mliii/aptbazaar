@@ -19,7 +19,7 @@ import {
 import { EMPTY_STATES } from "@/lib/copy/empty-states";
 import type { Product } from "@/lib/schemas/product";
 import { cn } from "@/lib/utils/cn";
-import { formatMoney } from "@/lib/pricing/currency";
+import { formatMoney, formatPrice } from "@/lib/pricing/currency";
 import { parsePriceToCents } from "@/lib/utils/price";
 
 const ALLERGEN_OPTIONS = ["wheat", "dairy", "eggs", "nuts", "soy", "sesame"];
@@ -148,7 +148,7 @@ function ProductRow({
         {product.image_url ? (
           <Image
             src={product.image_url}
-            alt={product.name}
+            alt={product.image_alt ?? product.name}
             fill
             unoptimized
             className="object-cover"
@@ -173,7 +173,7 @@ function ProductRow({
       </div>
 
       <span className="text-right font-mono text-14 font-medium text-ink">
-        {formatMoney(product.price_cents)}
+        {formatPrice(product.price_cents)}
       </span>
 
       <span
@@ -192,7 +192,7 @@ function ProductRow({
       <div className="relative">
         <button
           type="button"
-          className="rounded-sm px-2 py-1 text-ink-3 hover:text-ink"
+          className="rounded-sm px-2 py-1 text-ink-3 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris"
           aria-label="More actions"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
@@ -207,7 +207,7 @@ function ProductRow({
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-14 hover:bg-paper-2"
+              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-14 hover:bg-paper-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris"
               onClick={() => {
                 setMenuOpen(false);
                 onEdit();
@@ -219,7 +219,7 @@ function ProductRow({
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-14 text-danger hover:bg-danger-3"
+              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-14 text-danger hover:bg-danger-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdigris"
               onClick={() => {
                 setMenuOpen(false);
                 if (window.confirm(`Remove "${product.name}" from your stoop?`)) {
@@ -263,11 +263,15 @@ function ProductModal({
   const [qty, setQty] = useState(
     product?.qty_available != null ? String(product.qty_available) : ""
   );
+  const [maxPerOrder, setMaxPerOrder] = useState(
+    product?.max_per_order != null ? String(product.max_per_order) : ""
+  );
   const [description, setDescription] = useState(product?.description ?? "");
   const [ingredients, setIngredients] = useState(product?.ingredients ?? "");
   const [allergens, setAllergens] = useState<string[]>(product?.allergens ?? []);
   const [isActive, setIsActive] = useState(product?.is_active ?? true);
   const [imageUrl, setImageUrl] = useState<string | null>(product?.image_url ?? null);
+  const [imageAlt, setImageAlt] = useState(product?.image_alt ?? "");
   const [imageUploadId, setImageUploadId] = useState<string | null | undefined>(
     undefined
   );
@@ -286,13 +290,16 @@ function ProductModal({
     setErrors({});
     setFormError(null);
     const trimmedQty = qty.trim();
+    const trimmedMax = maxPerOrder.trim();
     const input = {
       name: name.trim(),
       description: description.trim() || undefined,
       price_cents: parsePriceToCents(price),
       image_upload_id: imageUploadId ?? undefined,
       clear_image: imageCleared,
+      image_alt: imageAlt.trim() || undefined,
       qty_available: trimmedQty === "" ? null : Number.parseInt(trimmedQty, 10),
+      max_per_order: trimmedMax === "" ? null : Number.parseInt(trimmedMax, 10),
       is_active: isActive,
       allergens,
       ingredients: ingredients.trim() || undefined
@@ -335,6 +342,24 @@ function ProductModal({
           )}
         </div>
 
+        {imageUrl ? (
+          <Field
+            id={`${formId}-image-alt`}
+            label="Photo description"
+            error={errors.image_alt}
+          >
+            <Input
+              id={`${formId}-image-alt`}
+              value={imageAlt}
+              onChange={(e) => setImageAlt(e.target.value)}
+              placeholder="A stack of golden-brown cookies on a plate"
+            />
+            <span className="mt-1 block text-12 text-ink-3">
+              Helps shoppers using a screen reader picture your item.
+            </span>
+          </Field>
+        ) : null}
+
         <Field id={`${formId}-name`} label="Product name" error={errors.name}>
           <Input
             id={`${formId}-name`}
@@ -356,6 +381,9 @@ function ProductModal({
               }
               placeholder="$12.00"
             />
+            <span className="mt-1 block text-12 text-ink-3">
+              Leave blank or $0 for a giveaway.
+            </span>
           </Field>
           <Field
             id={`${formId}-quantity`}
@@ -371,6 +399,23 @@ function ProductModal({
             />
           </Field>
         </div>
+
+        <Field
+          id={`${formId}-max-per-order`}
+          label="Limit per order"
+          error={errors.max_per_order}
+        >
+          <Input
+            id={`${formId}-max-per-order`}
+            numeric
+            value={maxPerOrder}
+            onChange={(e) => setMaxPerOrder(e.target.value)}
+            placeholder="No limit"
+          />
+          <span className="mt-1 block text-12 text-ink-3">
+            Caps how many one person can grab in a single order — handy for giveaways.
+          </span>
+        </Field>
 
         <Field
           id={`${formId}-description`}

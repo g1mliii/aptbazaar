@@ -46,6 +46,7 @@ type StoreSettings = {
   pickup_window_label: string | null;
   pickup_public_note: string | null;
   accept_pay_at_pickup: boolean;
+  orders_per_day_limit: number | null;
   is_active: boolean;
 };
 
@@ -202,6 +203,9 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
   const [windowLabel, setWindowLabel] = useState(store.pickup_window_label ?? "");
   const [publicNote, setPublicNote] = useState(store.pickup_public_note ?? "");
   const [payAtPickup, setPayAtPickup] = useState(store.accept_pay_at_pickup);
+  const [ordersPerDay, setOrdersPerDay] = useState(
+    store.orders_per_day_limit != null ? String(store.orders_per_day_limit) : ""
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -245,6 +249,10 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
         pickup_window_label: windowLabel,
         pickup_public_note: publicNote,
         accept_pay_at_pickup: payAtPickup,
+        orders_per_day_limit:
+          ordersPerDay.trim() === ""
+            ? null
+            : Number.parseInt(ordersPerDay.trim(), 10),
         logo_upload_id: logoUploadId ?? undefined,
         clear_logo: logoCleared
       });
@@ -364,6 +372,24 @@ function StoreInfoSection({ store }: { store: StoreSettings }) {
           />
           <span className="text-14 text-ink">Accept pay-at-pickup orders</span>
         </label>
+
+        <Field
+          id={`${formId}-orders-per-day`}
+          label="Orders per day"
+          error={errors.orders_per_day_limit}
+        >
+          <Input
+            id={`${formId}-orders-per-day`}
+            numeric
+            value={ordersPerDay}
+            onChange={(e) => setOrdersPerDay(e.target.value)}
+            placeholder="No daily limit"
+          />
+          <span className="mt-1 block text-12 text-ink-3">
+            Once you hit this, your stoop shows “fully booked” for the rest of the day and
+            reopens tomorrow. Leave blank for no limit.
+          </span>
+        </Field>
 
         <Field label="Visibility" error={errors.visibility}>
           <div

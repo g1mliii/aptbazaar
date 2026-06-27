@@ -23,3 +23,11 @@ export function formatMoney(cents: number): string {
     style: "currency"
   }).format(safe / 100);
 }
+
+/**
+ * Format a price for display, rendering `$0` as the giveaway label `Free`. This is the single rule
+ * for the $0 case — call sites should not branch on `cents === 0` themselves.
+ */
+export function formatPrice(cents: number): string {
+  return cents === 0 ? "Free" : formatMoney(cents);
+}

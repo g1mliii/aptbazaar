@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.mjs ./
+COPY server.mjs process-image.mjs ./
 
 EXPOSE 8080
 CMD ["node", "server.mjs"]

@@ -18,7 +18,7 @@ import type { Database, TablesUpdate } from "@/lib/supabase/database.types";
 // from the caller's own store, never trusted from the client.
 
 const PRODUCT_COLUMNS =
-  "id, store_id, name, description, price_cents, currency, image_url, qty_available, is_active, allergens, ingredients, created_at, updated_at";
+  "id, store_id, name, description, price_cents, currency, image_url, image_alt, qty_available, max_per_order, is_active, allergens, ingredients, created_at, updated_at";
 
 export type ProductActionResult =
   | { ok: true; product: Product }
@@ -71,7 +71,10 @@ export async function createProduct(input: unknown): Promise<ProductActionResult
       description: parsed.data.description ?? null,
       price_cents: parsed.data.price_cents,
       image_url: imageUrl,
+      // Alt only travels with an image; the schema guarantees it's present when one is attached.
+      image_alt: imageUrl ? (parsed.data.image_alt ?? null) : null,
       qty_available: parsed.data.qty_available ?? null,
+      max_per_order: parsed.data.max_per_order ?? null,
       is_active: parsed.data.is_active,
       allergens: parsed.data.allergens,
       ingredients: parsed.data.ingredients ?? null
@@ -102,11 +105,22 @@ export async function updateProduct(
     return { ok: false, error: "We couldn't find your store." };
   }
 
+  const { data: current } = await supabase
+    .from("products")
+    .select("image_url, image_alt")
+    .eq("id", productId)
+    .eq("store_id", storeId)
+    .maybeSingle();
+  if (!current) {
+    return { ok: false, error: "We couldn't save that product." };
+  }
+
   const updatePayload: ProductUpdate = {
     name: parsed.data.name,
     description: parsed.data.description ?? null,
     price_cents: parsed.data.price_cents,
     qty_available: parsed.data.qty_available ?? null,
+    max_per_order: parsed.data.max_per_order ?? null,
     is_active: parsed.data.is_active,
     allergens: parsed.data.allergens,
     ingredients: parsed.data.ingredients ?? null
@@ -122,8 +136,25 @@ export async function updateProduct(
       return { ok: false, error: resolved.error };
     }
     updatePayload.image_url = resolved.url;
+    updatePayload.image_alt = parsed.data.image_alt ?? null;
   } else if (parsed.data.clear_image) {
     updatePayload.image_url = null;
+    updatePayload.image_alt = null;
+  } else if (parsed.data.image_alt !== undefined) {
+    // Let a seller fix the alt text on an existing photo without re-uploading it.
+    updatePayload.image_alt = parsed.data.image_alt.trim() || null;
+  }
+
+  const nextHasImage =
+    updatePayload.image_url !== null && (updatePayload.image_url ?? current.image_url) !== null;
+  const nextAlt = updatePayload.image_alt ?? current.image_alt ?? "";
+  if (nextHasImage && nextAlt.trim().length < 3) {
+    return {
+      ok: false,
+      fieldErrors: {
+        image_alt: "Describe the photo in a few words so everyone can picture it."
+      }
+    };
   }
 
   const { data, error } = await supabase

@@ -35,7 +35,7 @@ export function StoreHeader({
       <div className="flex items-center gap-3">
         {store.logo_url ? (
           <Image
-            alt=""
+            alt={`${store.name} logo`}
             className="h-12 w-12 rounded-md object-cover"
             height={48}
             src={store.logo_url}

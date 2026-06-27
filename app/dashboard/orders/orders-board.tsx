@@ -18,7 +18,7 @@ import {
 import { createDashboardLoginLink } from "@/lib/actions/stripe-connect";
 import { orderRefFrom } from "@/lib/orders/pickup";
 import { computePlatformFee, formatBps, PLATFORM_FEE_BPS } from "@/lib/pricing/fee";
-import { formatMoney } from "@/lib/pricing/currency";
+import { formatMoney, formatPrice } from "@/lib/pricing/currency";
 import type { OrderStatus, PaymentMode, PaymentStatus } from "@/lib/schemas/order";
 import { TRANSITIONS, willRefundOnCancel } from "@/lib/schemas/order";
 import type { StampStatus } from "@/app/components/ui/stamp";
@@ -564,7 +564,7 @@ function OrderDetail({
                 Total
               </span>
               <span className="font-mono text-15 font-bold tabular-nums text-ink">
-                {formatMoney(order.total_cents)}
+                {formatPrice(order.total_cents)}
               </span>
             </div>
           </div>

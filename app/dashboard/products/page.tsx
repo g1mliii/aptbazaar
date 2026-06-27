@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ProductsScreen } from "./products-screen";
 
 const PRODUCT_COLUMNS =
-  "id, store_id, name, description, price_cents, currency, image_url, qty_available, is_active, allergens, ingredients, created_at, updated_at";
+  "id, store_id, name, description, price_cents, currency, image_url, image_alt, qty_available, max_per_order, is_active, allergens, ingredients, created_at, updated_at";
 
 export default async function ProductsPage() {
   // The dashboard layout already gates on requireSeller(); RLS scopes these reads to the owner.

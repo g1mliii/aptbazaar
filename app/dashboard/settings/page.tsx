@@ -12,7 +12,7 @@ export default async function SettingsPage() {
   const { data: store } = await supabase
     .from("stores")
     .select(
-      "id, slug, name, category, description, logo_url, visibility, pickup_method, pickup_window_label, pickup_public_note, accept_pay_at_pickup, is_active"
+      "id, slug, name, category, description, logo_url, visibility, pickup_method, pickup_window_label, pickup_public_note, accept_pay_at_pickup, orders_per_day_limit, is_active"
     )
     .order("created_at", { ascending: true })
     .limit(1)

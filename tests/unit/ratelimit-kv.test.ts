@@ -3,26 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   addToWindow,
   addToWindows,
-  remainingInWindow,
-  type KVNamespace
+  remainingInWindow
 } from "@/lib/ratelimit/kv";
+
+import { fakeKv } from "./fake-kv";
 
 // Phase 6.5: the batch-aware fixed-window counter behind the per-store daily drop cap. A drop adds a
 // whole recipient batch at once and must be rejected as a unit when it would breach the limit.
-
-function fakeKv(): KVNamespace {
-  const store = new Map<string, string>();
-  const get = (key: string, type?: "json"): Promise<unknown> => {
-    const v = store.get(key);
-    if (v === undefined) return Promise.resolve(null);
-    return Promise.resolve(type === "json" ? (JSON.parse(v) as unknown) : v);
-  };
-  const put = (key: string, value: string): Promise<void> => {
-    store.set(key, value);
-    return Promise.resolve();
-  };
-  return { get, put } as KVNamespace;
-}
 
 const WINDOW = 3600;
 const LIMIT = 200;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { requiredEnv } from "@/lib/env";
+import { captureFailure } from "@/lib/observability/capture";
 import { getStripe } from "@/lib/stripe/client";
 import { processStripeEvent } from "@/lib/stripe/webhook-handlers";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
@@ -75,6 +76,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     return NextResponse.json({ received: true });
   } catch (err) {
+    captureFailure("stripe-webhook", err, { eventId: event.id, type: event.type });
     await supabase
       .from("stripe_events")
       .update({

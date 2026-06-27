@@ -408,9 +408,11 @@ export type Database = {
           currency: string;
           description: string | null;
           id: string;
+          image_alt: string | null;
           image_url: string | null;
           ingredients: string | null;
           is_active: boolean;
+          max_per_order: number | null;
           name: string;
           price_cents: number;
           qty_available: number | null;
@@ -423,9 +425,11 @@ export type Database = {
           currency?: string;
           description?: string | null;
           id?: string;
+          image_alt?: string | null;
           image_url?: string | null;
           ingredients?: string | null;
           is_active?: boolean;
+          max_per_order?: number | null;
           name: string;
           price_cents: number;
           qty_available?: number | null;
@@ -438,9 +442,11 @@ export type Database = {
           currency?: string;
           description?: string | null;
           id?: string;
+          image_alt?: string | null;
           image_url?: string | null;
           ingredients?: string | null;
           is_active?: boolean;
+          max_per_order?: number | null;
           name?: string;
           price_cents?: number;
           qty_available?: number | null;
@@ -568,6 +574,9 @@ export type Database = {
           name: string;
           normalized_key: string | null;
           order_count_week: number;
+          orders_per_day_limit: number | null;
+          orders_today: number;
+          orders_today_date: string | null;
           pickup_method: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note: string | null;
           pickup_public_note: string | null;
@@ -590,6 +599,9 @@ export type Database = {
           name: string;
           normalized_key?: string | null;
           order_count_week?: number;
+          orders_per_day_limit?: number | null;
+          orders_today?: number;
+          orders_today_date?: string | null;
           pickup_method?: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note?: string | null;
           pickup_public_note?: string | null;
@@ -612,6 +624,9 @@ export type Database = {
           name?: string;
           normalized_key?: string | null;
           order_count_week?: number;
+          orders_per_day_limit?: number | null;
+          orders_today?: number;
+          orders_today_date?: string | null;
           pickup_method?: Database["public"]["Enums"]["pickup_method"];
           pickup_private_note?: string | null;
           pickup_public_note?: string | null;
@@ -846,7 +861,7 @@ export type Database = {
         | "ready"
         | "complete"
         | "cancelled";
-      payment_mode: "online" | "pay_at_pickup";
+      payment_mode: "online" | "pay_at_pickup" | "free";
       payment_status:
         | "unpaid"
         | "pay_at_pickup"
@@ -991,7 +1006,7 @@ export const Constants = {
       building_access_type: ["open", "invite"],
       membership_status: ["pending", "active", "removed"],
       order_status: ["new", "accepted", "preparing", "ready", "complete", "cancelled"],
-      payment_mode: ["online", "pay_at_pickup"],
+      payment_mode: ["online", "pay_at_pickup", "free"],
       payment_status: [
         "unpaid",
         "pay_at_pickup",

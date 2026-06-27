@@ -47,7 +47,7 @@ vi.mock("@/lib/ratelimit/kv", async (importOriginal) => {
 });
 
 import { exportSubscribersCsv, sendDrop } from "@/lib/actions/subscribers";
-import { addToWindow, remainingInWindow, type KVNamespace } from "@/lib/ratelimit/kv";
+import { addToWindow, remainingInWindow } from "@/lib/ratelimit/kv";
 import {
   DROP_DAILY_LIMIT,
   DROP_PLATFORM_DAILY_LIMIT,
@@ -56,23 +56,11 @@ import {
   secondsUntilUtcMidnight
 } from "@/lib/subscribers/drop-window";
 
+import { fakeKv } from "./fake-kv";
+
 const STORE_ID = "11111111-1111-4111-8111-111111111111";
 const SELLER_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
-
-function fakeKv(): KVNamespace {
-  const store = new Map<string, string>();
-  const get = (key: string, type?: "json"): Promise<unknown> => {
-    const value = store.get(key);
-    if (value === undefined) return Promise.resolve(null);
-    return Promise.resolve(type === "json" ? (JSON.parse(value) as unknown) : value);
-  };
-  const put = (key: string, value: string): Promise<void> => {
-    store.set(key, value);
-    return Promise.resolve();
-  };
-  return { get, put } as KVNamespace;
-}
 
 function storeQuery() {
   return {

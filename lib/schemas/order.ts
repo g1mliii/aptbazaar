@@ -2,7 +2,10 @@ import { z } from "zod";
 
 import { cents, currency, email, phoneE164, timestamptz, uuid } from "./common";
 
-export const paymentModeSchema = z.enum(["online", "pay_at_pickup"]);
+// "free" is a giveaway settlement (all-$0 cart): it skips Stripe and the pay-at-pickup gate and
+// lands the order already settled. The storefront only submits it for a $0 cart; place_order is the
+// real authority (it rejects 'free' on any priced cart).
+export const paymentModeSchema = z.enum(["online", "pay_at_pickup", "free"]);
 export const paymentStatusSchema = z.enum([
   "unpaid",
   "pay_at_pickup",
@@ -53,6 +56,7 @@ export function willRefundOnCancel(
 }
 
 export const MAX_ORDER_LINE_ITEMS = 100;
+export const MAX_ORDER_LINE_QUANTITY = 2_147_483_647;
 
 export const orderRowSchema = z.object({
   id: uuid,
@@ -94,11 +98,14 @@ export const orderPlacementSchema = z
     pickupWindow: z.string().optional(),
     notes: z.string().max(2000).optional(),
     idempotencyKey: z.uuid(),
+    // Phase 9.3: Cloudflare Turnstile token from the widget; verified server-side, never persisted
+    // and excluded from the request-hash canonicalization so it can't perturb idempotency.
+    turnstileToken: z.string().optional(),
     items: z
       .array(
         z.object({
           productId: uuid,
-          quantity: z.number().int().positive()
+          quantity: z.number().int().positive().max(MAX_ORDER_LINE_QUANTITY)
         })
       )
       .min(1, "Your cart is empty.")

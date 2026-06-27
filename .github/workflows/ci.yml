@@ -46,6 +46,23 @@ jobs:
           NEXT_PUBLIC_APP_ENV: test
           APP_ENV: test
 
+  audit:
+    # Phase 9.9: fail the build on a high/critical advisory in production dependencies.
+    # Scoped to runtime deps (--omit=dev) so a devDependency advisory doesn't block shipping.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Audit dependencies
+        run: npm run audit:ci
+
   integration:
     # RLS / tenant-isolation tests against the Supabase project the repo points at.
     # Runs only when the connection vars are configured (set vars.SUPABASE_URL,

@@ -30,6 +30,11 @@ export const storeRowSchema = z.object({
   pickup_private_note: z.string().nullable(),
   accept_pay_at_pickup: z.boolean(),
   order_count_week: z.number().int().nonnegative(),
+  // Per-day order cap (null = unlimited) + its lazily-reset daily counter. orders_today only counts
+  // for orders_today_date; place_order resets it on the first order of a new America/Toronto day.
+  orders_per_day_limit: z.number().int().positive().nullable(),
+  orders_today: z.number().int().nonnegative(),
+  orders_today_date: timestamptz.nullable(),
   // Building grouping key (street|POSTAL). Maintained by updateContactInfo; never on a public surface.
   normalized_key: z.string().nullable(),
   first_scan_at: timestamptz.nullable(),

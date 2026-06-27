@@ -8,6 +8,14 @@ import { sendDropEmail } from "@/lib/email/drop";
 import { appBaseUrl } from "@/lib/env";
 import { requireSeller } from "@/lib/auth/session";
 import { addToWindows, getRateLimitKv } from "@/lib/ratelimit/kv";
+import { guardAnonWrite } from "@/lib/ratelimit/anon-guard";
+import {
+  ANON_WINDOW_SECONDS,
+  SUBSCRIBE_IP_STORE_LIMIT,
+  SUBSCRIBE_STORE_LIMIT,
+  subscribeIpStoreKey,
+  subscribeStoreKey
+} from "@/lib/ratelimit/anon-windows";
 import { fieldErrorsFrom } from "@/lib/schemas/field-errors";
 import { dropInputSchema, subscriberInputSchema } from "@/lib/schemas/subscriber";
 import {
@@ -31,7 +39,7 @@ import { generateToken } from "@/lib/utils/token";
 // verified_at at capture — that's what marks a row drop-eligible (the partial index
 // subscribers_store_active_drop_idx filters on verified_at IS NOT NULL).
 //
-// Hard per-(ip, store) rate limiting is Phase 9.3 — the seam is here, not the implementation.
+// Phase 9.3: Turnstile + per-(ip, store) and per-store KV rate limits guard this anon insert below.
 
 export type SubscribeResult =
   | { ok: true }
@@ -41,6 +49,32 @@ export async function subscribe(input: unknown): Promise<SubscribeResult> {
   const parsed = subscriberInputSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error.issues) };
+  }
+
+  // Phase 9.3: Turnstile soft challenge + per-minute KV caps (per (ip, store) and per store) so
+  // an open subscribe form can't be scripted to flood a roster. IP comes from the edge, not input.
+  const guard = await guardAnonWrite(parsed.data.turnstileToken, (ip, now) => [
+    {
+      key: subscribeIpStoreKey(ip, parsed.data.storeId, now),
+      amount: 1,
+      limit: SUBSCRIBE_IP_STORE_LIMIT,
+      windowSeconds: ANON_WINDOW_SECONDS
+    },
+    {
+      key: subscribeStoreKey(parsed.data.storeId, now),
+      amount: 1,
+      limit: SUBSCRIBE_STORE_LIMIT,
+      windowSeconds: ANON_WINDOW_SECONDS
+    }
+  ]);
+  if (!guard.ok) {
+    return {
+      ok: false,
+      error:
+        guard.reason === "turnstile"
+          ? "We couldn't confirm you're a person. Refresh and try again."
+          : "Give it a minute and try again."
+    };
   }
 
   const supabase = createSupabaseAnonClient();

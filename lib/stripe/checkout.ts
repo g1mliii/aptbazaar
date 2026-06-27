@@ -47,6 +47,12 @@ export async function createOrderCheckoutSession(params: {
   if (!items || items.length === 0) {
     return { ok: false, error: "That order has no items." };
   }
+  // A $0 (free/giveaway) order never belongs in Stripe — it rejects zero-amount charges, and the
+  // order is already settled on placement. Guard here so a stray online-mode $0 order can't reach
+  // the API; the storefront routes all-free carts to the 'free' settle path instead.
+  if (order.total_cents <= 0) {
+    return { ok: false, error: "This order is free — no payment needed." };
+  }
 
   const { data: store } = await supabase
     .from("stores")

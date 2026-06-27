@@ -118,4 +118,22 @@ describe("placeOrder", () => {
 
     expect(mocks.orderRpc).not.toHaveBeenCalled();
   });
+
+  it("lets free orders reach the placement RPC without Stripe or pay-at-pickup setup", async () => {
+    mocks.storeMaybeSingle.mockResolvedValueOnce({
+      data: { is_active: true, accept_pay_at_pickup: false },
+      error: null
+    });
+
+    await expect(placeOrder(orderInput({ paymentMode: "free" }))).resolves.toEqual({
+      ok: true,
+      clearCart: true,
+      token: "tracking-token"
+    });
+
+    expect(mocks.orderRpc).toHaveBeenCalledWith(
+      "place_order",
+      expect.objectContaining({ p_payment_mode: "free" })
+    );
+  });
 });

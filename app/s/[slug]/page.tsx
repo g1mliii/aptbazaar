@@ -21,11 +21,49 @@ export const revalidate = 30;
 // Explicit, non-PII column lists. The public storefront never selects seller email/phone/address
 // or any unit number (hard invariant 2 + the Phase 4 privacy gate).
 const STORE_COLUMNS =
-  "id, slug, name, category, description, logo_url, is_active, pickup_method, pickup_window_label, pickup_public_note, accept_pay_at_pickup, order_count_week";
+  "id, slug, name, category, description, logo_url, is_active, pickup_method, pickup_window_label, pickup_public_note, accept_pay_at_pickup, order_count_week, orders_per_day_limit, orders_today, orders_today_date";
 const PRODUCT_COLUMNS =
-  "id, name, description, price_cents, image_url, qty_available, allergens";
+  "id, name, description, price_cents, image_url, image_alt, qty_available, max_per_order, allergens";
 
-type StoreActiveRow = Omit<StorefrontStore, never> & { is_active: boolean };
+// Raw store row as read from the DB: the public fields plus is_active and the daily-cap counters.
+// We never hand the counters to the client — toStorefrontStore() folds them into a single
+// `atCapacity` boolean computed against the same America/Toronto day as place_order.
+type StoreActiveRow = Omit<StorefrontStore, "atCapacity"> & {
+  is_active: boolean;
+  orders_per_day_limit: number | null;
+  orders_today: number;
+  orders_today_date: string | null;
+};
+
+/** Today's date as YYYY-MM-DD in the app's fixed business timezone (matches the place_order SQL). */
+function businessToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+}
+
+function toStorefrontStore(row: StoreActiveRow): StorefrontStore {
+  const usedToday = row.orders_today_date === businessToday() ? row.orders_today : 0;
+  const atCapacity =
+    row.orders_per_day_limit !== null && usedToday >= row.orders_per_day_limit;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    category: row.category,
+    description: row.description,
+    logo_url: row.logo_url,
+    pickup_method: row.pickup_method,
+    pickup_window_label: row.pickup_window_label,
+    pickup_public_note: row.pickup_public_note,
+    accept_pay_at_pickup: row.accept_pay_at_pickup,
+    order_count_week: row.order_count_week,
+    atCapacity
+  };
+}
 
 // Happy path reads through the anon client so RLS stays load-bearing — it returns the store only
 // when it's active, and only its active products. Wrapped in cache() so generateMetadata and the
@@ -62,7 +100,7 @@ const loadActiveStore = cache(async function loadActiveStore(
     .returns<StorefrontProduct[]>();
   if (productsError) throw productsError;
 
-  return { store, products: products ?? [] };
+  return { store: toStorefrontStore(store), products: products ?? [] };
 });
 
 // Phase 8.3: building-mates for the "Also available in this building" row. A store appears in a
@@ -139,7 +177,7 @@ const loadInactiveStore = cache(async function loadInactiveStore(
       .select(STORE_COLUMNS)
       .eq("slug", slug)
       .maybeSingle<StoreActiveRow>();
-    return data ?? null;
+    return data ? toStorefrontStore(data) : null;
   } catch {
     return null;
   }
@@ -170,6 +208,11 @@ export default async function StorefrontPage({
 
   const active = await loadActiveStore(slug);
   if (active) {
+    // Hit the daily cap: the store is open but can't take more orders today. Show the "fully
+    // booked" notice (with subscribe) instead of the cart; it clears on its own tomorrow.
+    if (active.store.atCapacity) {
+      return <StoreClosed store={active.store} variant="booked" />;
+    }
     // Whether to offer the "Pay online" path. Read server-side via the secret client because
     // connected_accounts is service-role only and never reaches a public surface.
     const [onlineReady, buildingMates] = await Promise.all([

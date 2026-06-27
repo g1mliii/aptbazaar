@@ -21,7 +21,9 @@ export const subscriberInputSchema = z.object({
   email,
   consentEmail: z.literal(true, {
     message: "Check the box so we can email you about drops."
-  })
+  }),
+  // Phase 9.3: Cloudflare Turnstile token from the widget; verified server-side, not persisted.
+  turnstileToken: z.string().optional()
 });
 
 export type SubscriberInput = z.infer<typeof subscriberInputSchema>;

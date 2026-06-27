@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { buildingRowSchema, buildingMembershipRowSchema } from "@/lib/schemas/building";
 import {
+  MAX_ORDER_LINE_QUANTITY,
   orderNotesSchema,
   orderPlacementSchema,
   orderRowSchema,
   orderStatusTransitionSchema,
+  paymentModeSchema,
   paymentStatusSchema,
   TRANSITIONS
 } from "@/lib/schemas/order";
 import { orderItemRowSchema } from "@/lib/schemas/order-item";
-import { productRowSchema } from "@/lib/schemas/product";
+import { productInputSchema, productRowSchema } from "@/lib/schemas/product";
 import { sellerRowSchema } from "@/lib/schemas/seller";
 import { storeRowSchema } from "@/lib/schemas/store";
 import { subscriberRowSchema, subscriberInputSchema } from "@/lib/schemas/subscriber";
@@ -52,6 +54,9 @@ describe("row schemas accept representative rows", () => {
         pickup_private_note: null,
         accept_pay_at_pickup: true,
         order_count_week: 0,
+        orders_per_day_limit: null,
+        orders_today: 0,
+        orders_today_date: null,
         normalized_key: null,
         first_scan_at: null,
         first_scan_seen_at: null,
@@ -71,7 +76,9 @@ describe("row schemas accept representative rows", () => {
         price_cents: 800,
         currency: "CAD",
         image_url: null,
+        image_alt: null,
         qty_available: null,
+        max_per_order: null,
         is_active: true,
         allergens: ["gluten"],
         ingredients: null,
@@ -182,6 +189,25 @@ describe("schemas reject malformed input", () => {
     ).toBe(false);
   });
 
+  it("requires alt text when a photo is attached (Phase 9.6 a11y)", () => {
+    const base = { name: "Sourdough", price_cents: 800 };
+    expect(
+      productInputSchema.safeParse({ ...base, image_upload_id: UUID }).success
+    ).toBe(false);
+    expect(
+      productInputSchema.safeParse({ ...base, image_upload_id: UUID, image_alt: "ab" }).success
+    ).toBe(false);
+    expect(
+      productInputSchema.safeParse({
+        ...base,
+        image_upload_id: UUID,
+        image_alt: "A round sourdough loaf"
+      }).success
+    ).toBe(true);
+    // No image → alt not required.
+    expect(productInputSchema.safeParse(base).success).toBe(true);
+  });
+
   it("rejects negative price", () => {
     expect(
       productRowSchema.safeParse({
@@ -192,7 +218,9 @@ describe("schemas reject malformed input", () => {
         price_cents: -1,
         currency: "CAD",
         image_url: null,
+        image_alt: null,
         qty_available: null,
+        max_per_order: null,
         is_active: true,
         allergens: [],
         ingredients: null,
@@ -204,6 +232,71 @@ describe("schemas reject malformed input", () => {
 
   it("rejects an unknown order status", () => {
     expect(orderStatusReject()).toBe(false);
+  });
+
+  it("rejects impossible order quantities before they reach the RPC", () => {
+    const base = {
+      storeId: UUID,
+      customerName: "Sam",
+      customerEmail: "sam@example.com",
+      paymentMode: "pay_at_pickup",
+      idempotencyKey: UUID,
+      items: [{ productId: UUID2, quantity: 1 }]
+    };
+    expect(orderPlacementSchema.safeParse(base).success).toBe(true);
+    expect(
+      orderPlacementSchema.safeParse({
+        ...base,
+        items: [{ productId: UUID2, quantity: MAX_ORDER_LINE_QUANTITY + 1 }]
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts the 'free' payment mode (giveaway settlement)", () => {
+    expect(paymentModeSchema.safeParse("free").success).toBe(true);
+    expect(paymentModeSchema.safeParse("online").success).toBe(true);
+    expect(paymentModeSchema.safeParse("pay_at_pickup").success).toBe(true);
+    expect(paymentModeSchema.safeParse("cheque").success).toBe(false);
+  });
+
+  it("accepts max_per_order as a positive int or null, rejects 0/negative", () => {
+    const base = { name: "Free loaf", price_cents: 0 };
+    expect(productInputSchema.safeParse({ ...base, max_per_order: 1 }).success).toBe(true);
+    expect(productInputSchema.safeParse({ ...base, max_per_order: null }).success).toBe(true);
+    expect(productInputSchema.safeParse({ ...base }).success).toBe(true);
+    expect(productInputSchema.safeParse({ ...base, max_per_order: 0 }).success).toBe(false);
+    expect(productInputSchema.safeParse({ ...base, max_per_order: -2 }).success).toBe(false);
+  });
+
+  it("storeRowSchema accepts a positive daily cap or null, rejects 0", () => {
+    const row = {
+      id: UUID,
+      seller_id: UUID2,
+      slug: "maple-bakery",
+      name: "Maple Bakery",
+      category: null,
+      description: null,
+      logo_url: null,
+      is_active: true,
+      visibility: "qr_only",
+      pickup_method: "message_after_order",
+      pickup_window_label: null,
+      pickup_public_note: null,
+      pickup_private_note: null,
+      accept_pay_at_pickup: true,
+      order_count_week: 0,
+      orders_per_day_limit: 20,
+      orders_today: 3,
+      orders_today_date: "2026-06-25",
+      normalized_key: null,
+      first_scan_at: null,
+      first_scan_seen_at: null,
+      created_at: TS,
+      updated_at: TS
+    };
+    expect(storeRowSchema.safeParse(row).success).toBe(true);
+    expect(storeRowSchema.safeParse({ ...row, orders_per_day_limit: null }).success).toBe(true);
+    expect(storeRowSchema.safeParse({ ...row, orders_per_day_limit: 0 }).success).toBe(false);
   });
 
   it("requires email consent on the subscribe form", () => {

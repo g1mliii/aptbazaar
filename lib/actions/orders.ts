@@ -14,6 +14,15 @@ import {
 import { sendOrderConfirmationEmails } from "@/lib/email/order-confirmation";
 import { publishOrderUpdate } from "@/lib/orders/order-stream";
 import { orderRequestHash } from "@/lib/orders/request-hash";
+import { captureFailure } from "@/lib/observability/capture";
+import { guardAnonWrite } from "@/lib/ratelimit/anon-guard";
+import {
+  ANON_WINDOW_SECONDS,
+  ORDER_IP_STORE_LIMIT,
+  ORDER_STORE_LIMIT,
+  orderIpStoreKey,
+  orderStoreKey
+} from "@/lib/ratelimit/anon-windows";
 import { createOrderCheckoutSession } from "@/lib/stripe/checkout";
 import { getConnectedAccount } from "@/lib/stripe/connected-account";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
@@ -43,6 +52,33 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
   }
   const order = parsed.data;
 
+  // Phase 9.3: soft abuse controls before any DB work. The IP comes from the edge (cf-connecting-ip),
+  // never the client body. Turnstile is the soft challenge; the KV windows are the hard caps, scoped
+  // per (ip, store) and per store so a shared building NAT isn't blocked by one busy neighbour.
+  const guard = await guardAnonWrite(order.turnstileToken, (ip, now) => [
+    {
+      key: orderIpStoreKey(ip, order.storeId, now),
+      amount: 1,
+      limit: ORDER_IP_STORE_LIMIT,
+      windowSeconds: ANON_WINDOW_SECONDS
+    },
+    {
+      key: orderStoreKey(order.storeId, now),
+      amount: 1,
+      limit: ORDER_STORE_LIMIT,
+      windowSeconds: ANON_WINDOW_SECONDS
+    }
+  ]);
+  if (!guard.ok) {
+    return {
+      ok: false,
+      error:
+        guard.reason === "turnstile"
+          ? "We couldn't confirm you're a person. Refresh and try again."
+          : "That's a lot of orders in a row. Give it a minute and try again."
+    };
+  }
+
   const supabase = createSupabaseSecretClient();
   const { data: store, error: storeError } = await supabase
     .from("stores")
@@ -50,6 +86,7 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
     .eq("id", order.storeId)
     .maybeSingle();
   if (storeError) {
+    captureFailure("order-placement", storeError, { storeId: order.storeId, stage: "store-read" });
     return { ok: false, error: "We couldn't place your order. Try again in a moment." };
   }
   if (!store?.is_active) {
@@ -62,7 +99,7 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
         error: "This stoop isn't taking pay-at-pickup orders right now."
       };
     }
-  } else {
+  } else if (order.paymentMode === "online") {
     // Online needs the seller's Stripe Connect account to take charges. The place_order RPC and
     // the orders trigger enforce this in SQL too (STP06); checking here gives a kinder message and
     // avoids minting a token for an order that can't proceed.
@@ -118,6 +155,20 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
         error: "This stoop isn't taking that payment method right now."
       };
     }
+    if (error.code === "STP07") {
+      return {
+        ok: false,
+        error: "This stoop is fully booked for today. Check back tomorrow."
+      };
+    }
+    if (error.code === "STP08") {
+      return {
+        ok: false,
+        error: "There's a limit on how many of one of these you can grab. Lower the count and try again."
+      };
+    }
+    // The STP* codes above are expected business outcomes; anything else is an unexpected failure.
+    captureFailure("order-placement", error, { storeId: order.storeId, stage: "place_order_rpc" });
     return { ok: false, error: "We couldn't place your order. Try again in a moment." };
   }
 
@@ -144,8 +195,10 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
     return { ok: true, clearCart: true, token: row.token };
   }
 
-  // Pay-at-pickup: confirmation emails are best-effort — a delivery hiccup must not fail a placed
-  // order. Skip on a replay so a double-tap doesn't double-send.
+  // Pay-at-pickup and free ($0) orders settle on placement — no Stripe. ('free' carts land here
+  // because they aren't 'online'; the RPC already marked them paid.) Confirmation emails are
+  // best-effort — a delivery hiccup must not fail a placed order. Skip on a replay so a double-tap
+  // doesn't double-send.
   if (!row.replayed) {
     try {
       await sendOrderConfirmationEmails({ orderId: row.order_id, token: row.token });

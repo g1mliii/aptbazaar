@@ -10,8 +10,9 @@ import { placeOrder } from "@/lib/actions/orders";
 import { pickupOptionsFor } from "@/lib/orders/pickup";
 import type { PaymentMode } from "@/lib/schemas/order";
 import { cn } from "@/lib/utils/cn";
-import { formatMoney } from "@/lib/pricing/currency";
+import { formatPrice } from "@/lib/pricing/currency";
 
+import { TurnstileWidget, type TurnstileHandle } from "./turnstile-widget";
 import type { CartLine } from "./use-cart";
 import type { StorefrontStore } from "./types";
 
@@ -73,7 +74,13 @@ export function CheckoutForm({
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(
     onlineReady ? "online" : "pay_at_pickup"
   );
+  // An all-$0 cart is a giveaway: there's nothing to pay, so it skips Stripe and the pay-at-pickup
+  // gate entirely and settles on placement. We force mode 'free' and hide the payment chooser.
+  const isFree = subtotalCents === 0;
+  const effectiveMode: PaymentMode = isFree ? "free" : paymentMode;
   const [error, setError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileHandle>(null);
   const [pending, startTransition] = useTransition();
 
   // The idempotency key tracks the order *body* (the fields place_order hashes: store, email,
@@ -86,12 +93,12 @@ export function CheckoutForm({
       JSON.stringify({
         storeId: store.id,
         email: email.trim().toLowerCase(),
-        paymentMode,
+        paymentMode: effectiveMode,
         items: lines
           .map((l) => [l.product.id, l.qty] as const)
           .sort(([a], [b]) => a.localeCompare(b))
       }),
-    [store.id, email, paymentMode, lines]
+    [store.id, email, effectiveMode, lines]
   );
   const idempotencyRef = useRef<{ sig: string; key: string } | null>(null);
 
@@ -126,10 +133,11 @@ export function CheckoutForm({
         customerName,
         customerEmail,
         customerPhoneE164: normalizedPhone ? normalizedPhone : undefined,
-        paymentMode,
+        paymentMode: effectiveMode,
         pickupWindow: pickup || undefined,
         notes: notes.trim() ? notes.trim() : undefined,
         idempotencyKey,
+        turnstileToken: turnstileToken ?? undefined,
         items: lines.map((l) => ({ productId: l.product.id, quantity: l.qty }))
       });
 
@@ -141,6 +149,10 @@ export function CheckoutForm({
         }
         return;
       }
+      // The server consumed the Turnstile token (single-use) before this failure. Re-issue a fresh
+      // one so a retry of a recoverable error (sold out, payment mode, checkout hiccup) isn't blocked
+      // by the already-redeemed token.
+      turnstileRef.current?.reset();
       setError(
         result.error ??
           Object.values(result.fieldErrors ?? {})[0] ??
@@ -238,7 +250,7 @@ export function CheckoutForm({
           />
         </label>
 
-        {bothModes ? (
+        {bothModes && !isFree ? (
           <div>
             <span className="ab-label mb-1 block text-ink">Payment</span>
             <div aria-label="Payment" className="grid gap-2" role="radiogroup">
@@ -274,14 +286,18 @@ export function CheckoutForm({
 
         <div className="flex justify-between border-t border-dashed border-line pt-4 font-mono text-15 font-bold tabular-nums text-ink">
           <span>TOTAL</span>
-          <span>{formatMoney(subtotalCents)}</span>
+          <span>{formatPrice(subtotalCents)}</span>
         </div>
 
         <p className="ab-caption text-ink-3">
-          {paymentMode === "online"
-            ? "You'll pay securely by card on the next screen. The seller shares pickup details after your order."
-            : "By placing this order, you agree to pick up at the location the seller shares after checkout. You'll pay at pickup."}
+          {isFree
+            ? "This one's on the house. Claim it and the seller shares pickup details after."
+            : effectiveMode === "online"
+              ? "You'll pay securely by card on the next screen. The seller shares pickup details after your order."
+              : "By placing this order, you agree to pick up at the location the seller shares after checkout. You'll pay at pickup."}
         </p>
+
+        <TurnstileWidget onToken={setTurnstileToken} ref={turnstileRef} />
 
         {error ? (
           <Toast className="w-full justify-center" tone="danger">
@@ -296,13 +312,14 @@ export function CheckoutForm({
           type="submit"
           variant="primary"
         >
-          {pending
-            ? paymentMode === "online"
-              ? "Sending you to checkout…"
-              : "Placing your order…"
-            : paymentMode === "online"
-              ? "Pay & order"
-              : "Place order"}
+          {(() => {
+            const [idleLabel, pendingLabel] = isFree
+              ? ["Claim", "Claiming…"]
+              : effectiveMode === "online"
+                ? ["Pay & order", "Sending you to checkout…"]
+                : ["Place order", "Placing your order…"];
+            return pending ? pendingLabel : idleLabel;
+          })()}
         </Button>
       </form>
     </Drawer>

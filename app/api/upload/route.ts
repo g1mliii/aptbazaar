@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { getImageQueue, getUploadsBucket } from "@/lib/cloudflare/bindings";
+import {
+  ANON_WINDOW_SECONDS,
+  UPLOAD_SELLER_LIMIT,
+  uploadSellerKey
+} from "@/lib/ratelimit/anon-windows";
+import { captureFailure } from "@/lib/observability/capture";
+import { getRateLimitKv, incrementWithTtl } from "@/lib/ratelimit/kv";
 import { ALLOWED_UPLOAD_MIME, MAX_UPLOAD_BYTES } from "@/lib/schemas/image-upload";
 import { isTrustedMutationRequest } from "@/lib/security/csrf";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
@@ -60,6 +67,23 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   }
 
+  // Phase 9.3: cap uploads per seller (30/min). Fail-open when KV isn't bound (non-Worker dev).
+  const kv = getRateLimitKv();
+  if (kv) {
+    const limit = await incrementWithTtl(
+      kv,
+      uploadSellerKey(user.id, Date.now()),
+      UPLOAD_SELLER_LIMIT,
+      ANON_WINDOW_SECONDS
+    );
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "That's a lot of photos at once. Give it a minute." },
+        { status: 429 }
+      );
+    }
+  }
+
   let form: FormData;
   try {
     form = await request.formData();
@@ -116,7 +140,8 @@ export async function POST(request: Request): Promise<Response> {
       store_id: storeId,
       key_pending: keyPending
     });
-  } catch {
+  } catch (err) {
+    captureFailure("image-upload", err, { storeId });
     // Don't strand uploaded bytes or a forever-pending DB row if enqueue/startup fails.
     await bucket.delete(keyPending).catch(() => {});
     try {

@@ -23,6 +23,8 @@ let membershipId: string;
 let stripeEventId: string;
 let connectedAccountId: string;
 let auditLogId: string;
+let bQrCodeId: string;
+let bImageUploadId: string;
 
 beforeAll(async () => {
   sellerA = await seedSeller(service, { slug: `a-${Date.now()}` });
@@ -92,12 +94,39 @@ beforeAll(async () => {
     .select("id")
     .single();
   auditLogId = (auditLog as { id: string }).id;
+
+  // Seller B fixtures for the cross-tenant write matrix: qr_codes, image_uploads, scan_event_daily.
+  const { data: bQr } = await service
+    .from("qr_codes")
+    .insert({ store_id: sellerB.storeId, qr_type: "store", target_url: "https://example.test/b" })
+    .select("id")
+    .single();
+  bQrCodeId = (bQr as { id: string }).id;
+
+  const { data: bImg } = await service
+    .from("image_uploads")
+    .insert({
+      store_id: sellerB.storeId,
+      requested_by: sellerB.userId,
+      status: "pending",
+      key_pending: `uploads/pending/${sellerB.storeId}/seed`
+    })
+    .select("id")
+    .single();
+  bImageUploadId = (bImg as { id: string }).id;
+
+  await service
+    .from("scan_event_daily")
+    .insert({ store_id: sellerB.storeId, src: "qr", day: "2026-01-02", bucket: 0, count: 7 });
 });
 
 afterAll(async () => {
   await service.from("stripe_events").delete().eq("id", stripeEventId);
   await service.from("connected_accounts").delete().eq("id", connectedAccountId);
   await service.from("audit_log").delete().eq("id", auditLogId);
+  await service.from("qr_codes").delete().eq("id", bQrCodeId);
+  await service.from("image_uploads").delete().eq("id", bImageUploadId);
+  await service.from("scan_event_daily").delete().eq("store_id", sellerB.storeId);
   await cleanupUser(service, sellerA.userId);
   await cleanupUser(service, sellerB.userId);
   await cleanupUser(service, inactive.userId);
@@ -291,6 +320,96 @@ describe("order tracking token (capability read)", () => {
       .rpc("get_order_by_token", { p_token: "not-a-real-token" })
       .maybeSingle();
     expect(data).toBeNull();
+  });
+});
+
+describe("cross-tenant write deny matrix (seller A acting on seller B)", () => {
+  // Hosted Supabase grants table-level DML to `authenticated`, so a cross-tenant write is filtered
+  // to zero rows by RLS (usually no error). We assert the target row is unchanged / still present
+  // via the service client rather than trusting an error to surface.
+
+  async function expectUpdateDenied(
+    table: string,
+    idCol: string,
+    idVal: string,
+    patch: Record<string, unknown>,
+    field: string
+  ) {
+    const { data: before } = await service
+      .from(table as never)
+      .select(field)
+      .eq(idCol, idVal)
+      .single();
+    await clientA.from(table as never).update(patch as never).eq(idCol, idVal);
+    const { data: after } = await service
+      .from(table as never)
+      .select(field)
+      .eq(idCol, idVal)
+      .single();
+    expect((after as unknown as Record<string, unknown>)[field]).toEqual(
+      (before as unknown as Record<string, unknown>)[field]
+    );
+  }
+
+  async function countBy(
+    client: Db,
+    table: string,
+    idCol: string,
+    idVal: string
+  ): Promise<number> {
+    const { count } = await client
+      .from(table as never)
+      .select(idCol, { count: "exact", head: true })
+      .eq(idCol, idVal);
+    return count ?? 0;
+  }
+
+  async function expectDeleteDenied(table: string, idCol: string, idVal: string) {
+    await clientA.from(table as never).delete().eq(idCol, idVal);
+    expect(await countBy(service, table, idCol, idVal)).toBeGreaterThan(0);
+  }
+
+  it("cannot UPDATE B's store / product / order / subscriber", async () => {
+    await expectUpdateDenied("stores", "id", sellerB.storeId, { name: "hijacked" }, "name");
+    await expectUpdateDenied("products", "id", sellerB.productId, { name: "hijacked" }, "name");
+    await expectUpdateDenied("orders", "id", sellerB.orderId, { notes: "tampered" }, "notes");
+    await expectUpdateDenied(
+      "subscribers",
+      "id",
+      sellerB.subscriberId,
+      { consent_email: false },
+      "consent_email"
+    );
+  });
+
+  it("cannot DELETE B's rows across tenant-scoped tables", async () => {
+    await expectDeleteDenied("stores", "id", sellerB.storeId);
+    await expectDeleteDenied("products", "id", sellerB.productId);
+    await expectDeleteDenied("orders", "id", sellerB.orderId);
+    await expectDeleteDenied("subscribers", "id", sellerB.subscriberId);
+    await expectDeleteDenied("building_memberships", "id", membershipId);
+    await expectDeleteDenied("qr_codes", "id", bQrCodeId);
+    await expectDeleteDenied("image_uploads", "id", bImageUploadId);
+    await expectDeleteDenied("scan_event_daily", "store_id", sellerB.storeId);
+  });
+
+  it("cannot INSERT into B's store (products, qr_codes)", async () => {
+    const { error: productErr } = await clientA
+      .from("products")
+      .insert({ store_id: sellerB.storeId, name: "smuggled", price_cents: 100 });
+    expect(productErr).not.toBeNull();
+    expect(await rowCount(service, "products", "name", "smuggled")).toBe(0);
+
+    const { error: qrErr } = await clientA
+      .from("qr_codes")
+      .insert({ store_id: sellerB.storeId, qr_type: "store", target_url: "https://evil.test" });
+    expect(qrErr).not.toBeNull();
+  });
+
+  it("cannot READ B's qr_codes / image_uploads / scan_event_daily", async () => {
+    expect(await countBy(clientA, "qr_codes", "id", bQrCodeId)).toBe(0);
+    expect(await countBy(clientA, "image_uploads", "id", bImageUploadId)).toBe(0);
+    expect(await countBy(clientA, "scan_event_daily", "store_id", sellerB.storeId)).toBe(0);
   });
 });
 

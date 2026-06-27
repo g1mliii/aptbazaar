@@ -1,10 +1,10 @@
 "use server";
 
-import { headers } from "next/headers";
 import { z } from "zod";
 
 import { requiredEnv } from "@/lib/env";
 import { getRateLimitKv, incrementWithTtl } from "@/lib/ratelimit/kv";
+import { clientIp } from "@/lib/security/request-ip";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // Phase 2.7: magic-link issuance, rate-limited in our own server action because the
@@ -27,15 +27,6 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-}
-
-async function clientIp(): Promise<string> {
-  const hdrs = await headers();
-  return (
-    hdrs.get("cf-connecting-ip") ??
-    hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown"
-  );
 }
 
 async function rateLimitOk(email: string): Promise<boolean> {

@@ -13,12 +13,31 @@ type Env = Record<string, never>;
 // poll covers the gap). Watcher counts per order are tiny, so no hibernation is needed.
 const IDLE_MS = 5 * 60 * 1000;
 
+// Phase 9.3: cap concurrent SSE streams per order. A real watcher has one tab; more than a handful
+// means stale connections piling up (or abuse). At the cap we evict the oldest controller before
+// admitting the new one, which also coalesces a fast reconnect — the dead stream is dropped, not
+// stacked. The 20s poll covers any client we close.
+const MAX_STREAMS = 5;
+
 export class OrderStreamDO extends DurableObject<Env> {
   private controllers = new Set<ReadableStreamDefaultController<Uint8Array>>();
   private encoder = new TextEncoder();
 
   /** Open a new SSE stream, seed it with the current state, and refresh the idle alarm. */
   async subscribe(currentState: Payload): Promise<Response> {
+    // Evict the oldest stream(s) so we never hold more than MAX_STREAMS for this order. Set
+    // iteration is insertion-ordered, so the first entry is the oldest connection.
+    while (this.controllers.size >= MAX_STREAMS) {
+      const oldest = this.controllers.values().next().value;
+      if (!oldest) break;
+      this.controllers.delete(oldest);
+      try {
+        oldest.close();
+      } catch {
+        // Already closed.
+      }
+    }
+
     let ref: ReadableStreamDefaultController<Uint8Array> | null = null;
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {

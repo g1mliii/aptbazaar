@@ -47,6 +47,7 @@ function linesHtml(lines: OrderEmailLine[]): string {
 }
 
 function paymentLine(mode: PaymentMode): string {
+  if (mode === "free") return "On the house — nothing to pay.";
   return mode === "online"
     ? "You'll pay online to complete this order."
     : "Pay at pickup.";

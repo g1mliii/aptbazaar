@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import { Button } from "@/app/components/ui/button";
 import { Card } from "@/app/components/ui/card";
 import { Checkbox, Input } from "@/app/components/ui/form";
 import { subscribe } from "@/lib/actions/subscribers";
+
+import { TurnstileWidget, type TurnstileHandle } from "./turnstile-widget";
 
 // Phase 4.10: subscriber capture. Matches SubscribeForm.jsx. Email + required consent only —
 // no phone / SMS in v1. One-tap, no account.
@@ -21,6 +23,8 @@ export function SubscribeForm({
   const [consent, setConsent] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileHandle>(null);
   const [pending, startTransition] = useTransition();
 
   function submit() {
@@ -29,12 +33,16 @@ export function SubscribeForm({
       const result = await subscribe({
         storeId,
         email: email.trim(),
-        consentEmail: consent
+        consentEmail: consent,
+        turnstileToken: turnstileToken ?? undefined
       });
       if (result.ok) {
         setDone(true);
         return;
       }
+      // The single-use Turnstile token was consumed server-side; re-issue one so a retry isn't
+      // blocked by the already-redeemed token.
+      turnstileRef.current?.reset();
       setError(
         result.error ??
           Object.values(result.fieldErrors ?? {})[0] ??
@@ -95,6 +103,7 @@ export function SubscribeForm({
               account.
             </span>
           </label>
+          <TurnstileWidget onToken={setTurnstileToken} ref={turnstileRef} />
           {error ? (
             <p aria-live="polite" className="ab-caption text-danger" role="alert">
               {error}

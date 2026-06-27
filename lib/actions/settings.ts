@@ -63,6 +63,13 @@ const storeSettingsSchema = z.object({
   pickup_window_label: pickupWindowLabel,
   pickup_public_note: pickupPublicNote,
   accept_pay_at_pickup: z.boolean(),
+  // Blank field = no daily cap. Coerced from the settings form's text input; 0/negative rejected.
+  orders_per_day_limit: z
+    .number()
+    .int()
+    .positive("Use a whole number of orders, or leave it blank.")
+    .nullable()
+    .optional(),
   logo_upload_id: z.string().uuid().nullish(),
   clear_logo: z.boolean().optional()
 });
@@ -146,6 +153,7 @@ export async function updateStoreSettings(input: unknown): Promise<SettingsResul
     pickup_window_label: parsed.data.pickup_window_label || null,
     pickup_public_note: parsed.data.pickup_public_note ?? null,
     accept_pay_at_pickup: parsed.data.accept_pay_at_pickup,
+    orders_per_day_limit: parsed.data.orders_per_day_limit ?? null,
     // Backfill/refresh the grouping key from the saved contact address as part of this same write, so
     // the sync below always runs against a current key — never a stale null from a pre-feature store.
     normalized_key: normalizedKey

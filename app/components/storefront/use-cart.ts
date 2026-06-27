@@ -21,9 +21,13 @@ function storageKey(slug: string): string {
   return `stoop.cart.${CART_STORAGE_VERSION}.${slug}`;
 }
 
-// A product's purchasable ceiling: a finite qty_available caps it; null means unlimited.
+// A product's purchasable ceiling: the tighter of total stock (qty_available) and the per-order
+// cap (max_per_order). Either being null means "no limit from that side"; the cart honors both.
 function maxQty(product: StorefrontProduct): number {
-  return product.qty_available ?? Number.POSITIVE_INFINITY;
+  return Math.min(
+    product.qty_available ?? Number.POSITIVE_INFINITY,
+    product.max_per_order ?? Number.POSITIVE_INFINITY
+  );
 }
 
 export function useCart(slug: string, products: StorefrontProduct[]) {

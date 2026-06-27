@@ -13,6 +13,10 @@ export type StorefrontStore = {
   pickup_public_note: string | null;
   accept_pay_at_pickup: boolean;
   order_count_week: number;
+  // True when the store has hit its per-day order cap for today (computed server-side, same
+  // America/Toronto day rule as place_order). The storefront shows a "fully booked" state instead
+  // of the cart, and reopens automatically tomorrow.
+  atCapacity: boolean;
 };
 
 export type StorefrontProduct = {
@@ -21,6 +25,9 @@ export type StorefrontProduct = {
   description: string | null;
   price_cents: number;
   image_url: string | null;
+  image_alt: string | null;
   qty_available: number | null;
+  // Max quantity of this item allowed in one order (null = no per-order cap).
+  max_per_order: number | null;
   allergens: string[];
 };

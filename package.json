@@ -20,6 +20,7 @@
     "test:e2e": "playwright test",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run verify:image-processor",
     "verify:image-processor": "npm --prefix image-processor run verify",
+    "audit:ci": "npm audit --audit-level=high --omit=dev && npm --prefix image-processor audit --audit-level=high --omit=dev",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
@@ -44,6 +45,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@cloudflare/workers-types": "^4.20260621.1",
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.60.0",

@@ -11,7 +11,9 @@ const products: StorefrontProduct[] = [
     description: null,
     price_cents: 600,
     image_url: null,
+    image_alt: null,
     qty_available: 3,
+    max_per_order: null,
     allergens: []
   },
   {
@@ -20,7 +22,9 @@ const products: StorefrontProduct[] = [
     description: null,
     price_cents: 800,
     image_url: null,
+    image_alt: null,
     qty_available: null,
+    max_per_order: null,
     allergens: []
   }
 ];
@@ -65,6 +69,29 @@ describe("useCart", () => {
       for (let i = 0; i < 10; i += 1) result.current.add("p2");
     });
     expect(result.current.qtyOf("p2")).toBe(10);
+  });
+
+  it("caps quantity at max_per_order even when stock is unlimited", () => {
+    const giveaway: StorefrontProduct[] = [
+      {
+        id: "g1",
+        name: "Free loaf",
+        description: null,
+        price_cents: 0,
+        image_url: null,
+        image_alt: null,
+        qty_available: null,
+        max_per_order: 1,
+        allergens: []
+      }
+    ];
+    const { result } = renderHook(() => useCart("giveaway", giveaway));
+    act(() => {
+      result.current.add("g1");
+      result.current.add("g1");
+      result.current.add("g1");
+    });
+    expect(result.current.qtyOf("g1")).toBe(1);
   });
 
   it("clears the cart", () => {

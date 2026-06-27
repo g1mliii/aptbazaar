@@ -312,6 +312,130 @@ describe("place_order", () => {
   });
 });
 
+// Phase post-9: daily capacity cap (STP07), per-order quantity cap (STP08), and free settlement.
+describe("place_order caps + free orders", () => {
+  it("rejects an order once the per-day cap is reached, and reopens after the day rolls over", async () => {
+    const capStore = await seedTenant(true);
+    await service
+      .from("stores")
+      .update({ orders_per_day_limit: 1 })
+      .eq("id", capStore);
+    const { data: p } = await service
+      .from("products")
+      .insert({ store_id: capStore, name: "Capped", price_cents: 500 })
+      .select("id")
+      .single();
+    const order = (extra: Partial<PlaceOrderArgs> = {}) =>
+      args({
+        p_store_id: capStore,
+        p_items: [{ product_id: p!.id, quantity: 1 }],
+        ...extra
+      });
+
+    // First order of the day fills the single slot.
+    const first = await service.rpc("place_order", order());
+    expect(first.error).toBeNull();
+
+    // Second is turned away — fully booked.
+    const second = await service.rpc("place_order", order());
+    expect(second.error?.code).toBe("STP07");
+
+    // Back-date the day counter; the lazy reset treats today as a fresh day with 0 used.
+    await service
+      .from("stores")
+      .update({ orders_today_date: "2000-01-01" })
+      .eq("id", capStore);
+    const third = await service.rpc("place_order", order());
+    expect(third.error).toBeNull();
+  });
+
+  it("rejects a quantity over a product's max_per_order (STP08)", async () => {
+    const limitStore = await seedTenant(true);
+    const { data: p } = await service
+      .from("products")
+      .insert({
+        store_id: limitStore,
+        name: "One per person",
+        price_cents: 500,
+        max_per_order: 1
+      })
+      .select("id")
+      .single();
+    const { error } = await service.rpc(
+      "place_order",
+      args({
+        p_store_id: limitStore,
+        p_items: [{ product_id: p!.id, quantity: 2 }]
+      })
+    );
+    expect(error?.code).toBe("STP08");
+  });
+
+  it("settles a free ($0) order as paid without Stripe, even with pay-at-pickup off", async () => {
+    const freeStore = await seedTenant(true);
+    await service
+      .from("stores")
+      .update({ accept_pay_at_pickup: false })
+      .eq("id", freeStore);
+    const { data: p } = await service
+      .from("products")
+      .insert({ store_id: freeStore, name: "Free loaf", price_cents: 0 })
+      .select("id")
+      .single();
+
+    const { data, error } = await service.rpc(
+      "place_order",
+      args({
+        p_store_id: freeStore,
+        p_payment_mode: "free",
+        p_items: [{ product_id: p!.id, quantity: 1 }]
+      })
+    );
+    expect(error).toBeNull();
+    const row = data?.[0];
+    expect(row?.total_cents).toBe(0);
+
+    const { data: order } = await service
+      .from("orders")
+      .select("payment_mode, payment_status, stripe_checkout_session_id")
+      .eq("id", row!.order_id)
+      .single();
+    expect(order?.payment_mode).toBe("free");
+    expect(order?.payment_status).toBe("paid");
+    expect(order?.stripe_checkout_session_id).toBeNull();
+  });
+
+  it("rejects 'free' mode on a cart that isn't actually free", async () => {
+    const { error } = await service.rpc(
+      "place_order",
+      args({ p_payment_mode: "free", p_items: items(1) })
+    );
+    expect(error?.code).toBe("STP03");
+  });
+
+  it("counts a free order toward the per-day cap", async () => {
+    const capStore = await seedTenant(true);
+    await service
+      .from("stores")
+      .update({ orders_per_day_limit: 1 })
+      .eq("id", capStore);
+    const { data: p } = await service
+      .from("products")
+      .insert({ store_id: capStore, name: "Free + capped", price_cents: 0 })
+      .select("id")
+      .single();
+    const order = () =>
+      args({
+        p_store_id: capStore,
+        p_payment_mode: "free",
+        p_items: [{ product_id: p!.id, quantity: 1 }]
+      });
+
+    expect((await service.rpc("place_order", order())).error).toBeNull();
+    expect((await service.rpc("place_order", order())).error?.code).toBe("STP07");
+  });
+});
+
 describe("get_order_by_token after placement", () => {
   it("returns the order for a valid token and a PII-trimmed projection", async () => {
     const token = generateToken();

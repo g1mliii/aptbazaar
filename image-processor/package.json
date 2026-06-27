@@ -9,13 +9,16 @@
     "tail": "wrangler tail",
     "typegen": "wrangler types --env-interface ImageProcessorEnv image-processor-env.d.ts",
     "typecheck": "npm run typegen && tsc --noEmit",
-    "verify": "npm run typecheck"
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run test"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.0.30"
   },
   "devDependencies": {
+    "sharp": "^0.34.4",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.8",
     "wrangler": "^4.103.0"
   },
   "overrides": {
