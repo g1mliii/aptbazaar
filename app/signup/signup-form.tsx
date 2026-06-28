@@ -218,6 +218,17 @@ export function SignupForm() {
           {errors.responsibilityAccepted ? (
             <p className="-mt-2 text-13 text-danger">{errors.responsibilityAccepted}</p>
           ) : null}
+          <p className="text-13 text-ink-3">
+            Opening your stoop means you agree to our{" "}
+            <a href="/terms" className="font-semibold text-verdigris">
+              terms
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" className="font-semibold text-verdigris">
+              privacy policy
+            </a>
+            .
+          </p>
         </div>
 
         <Button type="submit" size="lg" className="mt-6 w-full" disabled={isPending}>

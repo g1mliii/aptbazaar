@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import {
+  ADMIN_COOKIE_NAME,
+  verifyAdminSession
+} from "@/lib/auth/admin-session";
 import { requiredEnv } from "@/lib/env";
 import {
   bazaarCookieName,
@@ -9,13 +13,14 @@ import {
 } from "@/lib/utils/bazaar-invite-cookie";
 import { PUBLIC_SLUG_RE } from "@/lib/utils/slug";
 
-// Phase 8.5: invite-code entry for building bazaars. Next 16's proxy.ts is the canonical
-// convention, but it runs as Node Middleware; @opennextjs/cloudflare currently supports Edge
-// Middleware and rejects Node Middleware during packaging. Keep this Edge-compatible file until the
-// Cloudflare adapter supports proxy.ts.
+// Phase 8.5: invite-code entry for building bazaars. Phase 10.6 adds the /admin founder-dashboard
+// gate. Next 16's proxy.ts is the canonical convention, but it runs as Node Middleware;
+// @opennextjs/cloudflare currently supports Edge Middleware and rejects Node Middleware during
+// packaging. Keep this Edge-compatible (Web Crypto + fetch only, no Node APIs) until the Cloudflare
+// adapter supports proxy.ts.
 
 export const config = {
-  matcher: "/b/:slug*"
+  matcher: ["/b/:slug*", "/admin/:path*"]
 };
 
 type InviteBuildingRow = {
@@ -50,6 +55,29 @@ async function loadInviteBuilding(slug: string): Promise<InviteBuildingRow | nul
 }
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  if (request.nextUrl.pathname.startsWith("/admin")) {
+    return adminGate(request);
+  }
+  return bazaarInviteGate(request);
+}
+
+// The /admin login page must stay reachable while logged out (it's how you get a session). Every
+// other /admin path requires a valid signed cookie; missing or stale ⇒ bounce to the login gate.
+async function adminGate(request: NextRequest): Promise<NextResponse> {
+  if (request.nextUrl.pathname === "/admin/login") {
+    return NextResponse.next();
+  }
+  const cookie = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  if (await verifyAdminSession(cookie, Date.now())) {
+    return NextResponse.next();
+  }
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/admin/login";
+  loginUrl.search = "";
+  return NextResponse.redirect(loginUrl, 307);
+}
+
+async function bazaarInviteGate(request: NextRequest): Promise<NextResponse> {
   const code = request.nextUrl.searchParams.get("code");
   if (!code) {
     return NextResponse.next();

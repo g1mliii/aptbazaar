@@ -2,6 +2,7 @@ import { Printer, QrCode, Store } from "lucide-react";
 import Link from "next/link";
 
 import { Logo } from "@/app/components/brand/logo";
+import { SiteFooter } from "@/app/components/site-footer";
 import { Button } from "@/app/components/ui/button";
 import { Card } from "@/app/components/ui/card";
 import { EmptyState } from "@/app/components/ui/empty-state";
@@ -111,6 +112,7 @@ export default function Home() {
           action={<Button variant="ink" size="sm">Download QR poster</Button>}
         />
       </div>
+      <SiteFooter />
     </main>
   );
 }
