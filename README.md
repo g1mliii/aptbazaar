@@ -1,4 +1,4 @@
-# aptbazaar
+# Stoop
 
 > QR-storefront platform for local sellers. Create a shop, add products, generate a QR code, and take orders + payments — without DMs.
 
