@@ -37,4 +37,15 @@ describe("SQL scale guards", () => {
       /grant select\s*\(\s*orders_per_day_limit,\s*orders_today,\s*orders_today_date\s*\)\s*on public\.stores to anon/i
     );
   });
+
+  it("preserves founder-dashboard ranking order inside JSON aggregates", () => {
+    const sql = readMigration("0040_admin_metrics_rpc.sql");
+
+    expect(sql).toMatch(
+      /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*seller_id\s*\)/i
+    );
+    expect(sql).toMatch(
+      /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*building_id\s*\)/i
+    );
+  });
 });
