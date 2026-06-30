@@ -39,13 +39,18 @@ describe("SQL scale guards", () => {
   });
 
   it("preserves founder-dashboard ranking order inside JSON aggregates", () => {
-    const sql = readMigration("0040_admin_metrics_rpc.sql");
+    const migrations = [
+      readMigration("0040_admin_metrics_rpc.sql"),
+      readMigration("0041_fix_admin_metrics_rank_order.sql")
+    ];
 
-    expect(sql).toMatch(
-      /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*seller_id\s*\)/i
-    );
-    expect(sql).toMatch(
-      /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*building_id\s*\)/i
-    );
+    for (const sql of migrations) {
+      expect(sql).toMatch(
+        /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*seller_id\s*\)/i
+      );
+      expect(sql).toMatch(
+        /jsonb_agg\(\s*row\s+order by\s+gmv_cents desc,\s*order_count desc,\s*building_id\s*\)/i
+      );
+    }
   });
 });
