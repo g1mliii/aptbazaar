@@ -140,18 +140,37 @@ export function Tracking({
   }, [token, applyData]);
 
   useEffect(() => {
-    // Live updates over SSE (Phase 6.0c), with the 20s poll kept as reconciliation. Seller actions
-    // publish immediately; Stripe webhook payment/refund changes may only be visible through poll.
+    // Live updates over SSE (Phase 6.0c). Seller order-status actions publish to the stream
+    // immediately; Stripe webhook payment/refund changes do NOT — they surface only through the poll.
+    // So online orders keep the reconciliation poll running even while SSE is connected, while
+    // pay-at-pickup orders (whose payment status never changes) let SSE be the sole channel once it's
+    // healthy and pause the redundant poll — the bulk of trackers at scale.
+    const sseCoversAllUpdates = paymentMode !== "online";
+
     const onVisible = () => {
       if (document.visibilityState === "visible") void refetch();
     };
     document.addEventListener("visibilitychange", onVisible);
 
-    const pollId = setInterval(() => void refetch(), POLL_MS);
+    let pollId: ReturnType<typeof setInterval> | null = null;
+    const startPoll = () => {
+      pollId ??= setInterval(() => void refetch(), POLL_MS);
+    };
+    const stopPoll = () => {
+      if (pollId !== null) {
+        clearInterval(pollId);
+        pollId = null;
+      }
+    };
+
+    startPoll();
 
     let es: EventSource | null = null;
     if (typeof EventSource !== "undefined") {
       es = new EventSource(`/api/track/${token}/stream`);
+      es.onopen = () => {
+        if (sseCoversAllUpdates) stopPoll();
+      };
       es.addEventListener("status", (event) => {
         try {
           applyData(JSON.parse(event.data as string));
@@ -160,6 +179,8 @@ export function Tracking({
         }
       });
       es.onerror = () => {
+        // Stream dropped: resume polling (no-op if already running) and reconcile right away.
+        startPoll();
         void refetch();
       };
     }
@@ -167,9 +188,9 @@ export function Tracking({
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       es?.close();
-      clearInterval(pollId);
+      stopPoll();
     };
-  }, [refetch, applyData, token]);
+  }, [refetch, applyData, token, paymentMode]);
 
   const cancelled = status === "cancelled";
   const activeIdx = FLOW.findIndex((s) => s.key === status);

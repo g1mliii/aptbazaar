@@ -768,6 +768,10 @@ export type Database = {
           updated_at: string;
         }[];
       };
+      get_admin_metrics: {
+        Args: { p_fee_bps: number; p_top_limit?: number };
+        Returns: Json;
+      };
       get_building_product_highlights: {
         Args: { p_building_id: string; p_drop_limit?: number };
         Returns: {

@@ -39,37 +39,45 @@ Effect: a popular open bazaar drops from `O(requests)` Postgres round-trips to ~
 > mutation paths (`lib/actions/settings.ts`, `lib/actions/building.ts`) to make roster changes
 > appear instantly instead of within 30s. Left out here to keep the change surgical.
 
-## Recommendations (not implemented — your call)
+## Follow-ups (second pass)
 
-### 1. Admin metrics fetch is unbounded — `lib/admin/load-metrics.ts`
+These started as recommendations and were implemented after review.
 
-`loadAdminMetrics` pulls **every paid order** (`orders.select("store_id, total_cents").eq("payment_status","paid")`)
-into the Worker and sums in JS. Correct today, but memory and latency grow linearly with lifetime
-order volume — eventually it can OOM the founder dashboard.
+### Admin metrics aggregation moved to SQL — `lib/admin/load-metrics.ts` + migration `0040`
 
-- **Fix:** move the aggregation into a `security definer` SQL function (`SUM(total_cents)`,
-  `GROUP BY store_id`) and call it via `.rpc()`. Migration → (no new table, so no new RLS policy,
-  but keep the function `security definer` + `search_path` locked like the other RPCs) → swap the
-  loader.
-- **Risk:** low. Single-founder page, not on the 10k-concurrent path, so it's a "before it bites"
-  fix rather than urgent.
+`loadAdminMetrics` used to pull **every paid order** into the Worker and sum/group in JS — memory and
+latency growing linearly with lifetime order volume. Replaced with a `security definer` RPC
+(`public.get_admin_metrics`, migration `0040`) that does the whole rollup in Postgres and returns one
+bounded JSON document. The fee **rate** stays single-sourced in TypeScript (`PLATFORM_FEE_BPS` is
+passed in as `p_fee_bps`); only the per-order rounding is mirrored in SQL, and `round(numeric)` is
+half-away-from-zero — identical to `Math.round` for the non-negative totals paid orders carry. The
+function is granted to `service_role` only; the JSON is Zod-validated at the loader boundary
+(`parseAdminMetrics`).
 
-### 2. Order tracking polls even while SSE is healthy — `app/o/[token]/tracking.tsx`
+> Apply migration `0040` and run the integration suite against the linked DB before trusting the
+> dashboard numbers — the SQL math (GMV, per-order fees, top-N) is covered there, not in the unit
+> suite. The unit test now pins the Zod boundary mapping only.
 
-The tracker runs a 20s `setInterval` poll **and** an `EventSource` at the same time. While the SSE
-connection is open the poll is redundant load on `/api/track/[token]`. At 10k concurrent trackers
-that's a meaningful chunk of avoidable requests.
+### Order tracking pauses its poll once SSE covers the order — `app/o/[token]/tracking.tsx`
 
-- **Fix:** pause the interval while the `EventSource` is open (`onopen` → clear, `onerror` →
-  resume), keeping the visibility-change refetch. Stripe-driven payment/refund changes still need a
-  reconciliation poll, so don't drop it entirely — just gate it on SSE health.
-- **Risk:** low–medium. Touches live-update behavior; verify payment-status transitions still land
-  promptly before shipping.
+The tracker ran a 20s poll **and** an `EventSource` simultaneously. The catch: seller order-status
+actions publish to the stream, but **Stripe webhook payment/refund changes do not** — they surface
+only through the poll. So the fix is conditional, not blanket:
 
-### 3. RLS tradeoff decisions
+- **Pay-at-pickup orders** (payment status never changes) — once SSE connects (`onopen`) the poll is
+  pure redundant load, so it's paused; `onerror` resumes it. This is the bulk of trackers at scale.
+- **Online orders** — keep the reconciliation poll running alongside SSE so Stripe-driven payment and
+  refund transitions still land promptly. No behavior change for them.
 
-None. No optimization in this pass required relaxing, bypassing, or restructuring an RLS policy.
-The bazaar cache covers only already-public data and leaves tenant isolation in SQL exactly as-is.
+> Fuller follow-up (not done): also publish payment/refund changes to the order stream from the Stripe
+> webhook + refund paths. That would let online orders drop the poll too — but it touches the money
+> path, so it's left as a deliberate next step.
+
+### RLS tradeoff decisions
+
+None. No change in this pass required relaxing, bypassing, or restructuring an RLS policy. The bazaar
+cache covers only already-public data; the admin RPC is `security definer` + `service_role`-only and
+reads no PII (`store_id`, `total_cents` only). Tenant isolation in SQL is unchanged.
 
 ## How this was verified
 

@@ -1,39 +1,25 @@
 import "server-only";
 
-import { computeAdminMetrics, type AdminMetrics } from "@/lib/admin/metrics";
+import { parseAdminMetrics, type AdminMetrics } from "@/lib/admin/metrics";
+import { PLATFORM_FEE_BPS } from "@/lib/pricing/fee";
 import { createSupabaseSecretClient } from "@/lib/supabase/secret";
 
-// Phase 10.6: the service-role fetch behind the founder dashboard. Reads go through the secret
-// client because the founder needs a cross-tenant view that RLS would otherwise scope to one seller.
-// All aggregation lives in the pure `computeAdminMetrics` (./metrics) so this file is a thin loader.
+// Phase 10.6 / scale follow-up: the service-role fetch behind the founder dashboard. Aggregation runs
+// in Postgres (public.get_admin_metrics, migration 0040) so this loader stays O(1) in memory no matter
+// how many paid orders exist — it passes the platform-fee rate down and validates the JSON it gets
+// back. The RPC is granted to service_role only, so the secret client is required.
+const ADMIN_TOP_LIMIT = 10;
+
 export async function loadAdminMetrics(): Promise<AdminMetrics> {
   const supabase = createSupabaseSecretClient();
 
-  const [
-    storeCountRes,
-    productCountRes,
-    paidOrdersRes,
-    storesRes,
-    sellersRes,
-    membershipsRes,
-    buildingsRes
-  ] = await Promise.all([
-    supabase.from("stores").select("id", { count: "exact", head: true }),
-    supabase.from("products").select("id", { count: "exact", head: true }),
-    supabase.from("orders").select("store_id, total_cents").eq("payment_status", "paid"),
-    supabase.from("stores").select("id, seller_id"),
-    supabase.from("sellers").select("id, display_name"),
-    supabase.from("building_memberships").select("building_id, store_id").eq("status", "active"),
-    supabase.from("buildings").select("id, display_name")
-  ]);
-
-  return computeAdminMetrics({
-    storeCount: storeCountRes.count ?? 0,
-    productCount: productCountRes.count ?? 0,
-    paidOrders: paidOrdersRes.data ?? [],
-    stores: storesRes.data ?? [],
-    sellers: sellersRes.data ?? [],
-    memberships: membershipsRes.data ?? [],
-    buildings: buildingsRes.data ?? []
+  const { data, error } = await supabase.rpc("get_admin_metrics", {
+    p_fee_bps: PLATFORM_FEE_BPS,
+    p_top_limit: ADMIN_TOP_LIMIT
   });
+  if (error) {
+    throw new Error(`Failed to load admin metrics: ${error.message}`);
+  }
+
+  return parseAdminMetrics(data);
 }
