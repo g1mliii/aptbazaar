@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { unstable_cache } from "next/cache";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
@@ -75,39 +76,15 @@ async function loadGatedBuilding(slug: string): Promise<BuildingPageRow | null> 
   return allowed ? building : null;
 }
 
-export default async function BuildingBazaarPage({
-  params
-}: {
-  params: Promise<{ publicSlug: string }>;
-}) {
-  const { publicSlug } = await params;
-  if (!PUBLIC_SLUG_RE.test(publicSlug)) {
-    notFound();
-  }
+const BAZAAR_CONTENT_REVALIDATE_SECONDS = 30;
 
-  let buildingRow: BuildingPageRow | null;
-  try {
-    buildingRow = await loadGatedBuilding(publicSlug);
-  } catch (error) {
-    if (isTestSupabaseConfigError(error)) {
-      notFound();
-    }
-    throw error;
-  }
-  if (!buildingRow) {
-    notFound();
-  }
-
+// The member roster + drop highlights for one building. Every field here is already the public,
+// Zod-projected, PII-free shape (storePublicCardSchema + the highlights RPC): no seller_id, email,
+// phone, unit, or address. Pulled out of the page body so open buildings can share one cached read.
+async function readBazaarContent(
+  buildingId: string
+): Promise<{ sellers: BazaarSeller[]; drops: BazaarDrop[] }> {
   const supabase = createSupabaseSecretClient();
-
-  const building = buildingPublicSchema.parse({
-    id: buildingRow.id,
-    display_name: buildingRow.display_name,
-    city: buildingRow.city,
-    public_slug: buildingRow.public_slug,
-    access_type: buildingRow.access_type,
-    created_at: buildingRow.created_at
-  });
 
   // Active member stores. These explicit filters mirror the grouping RPC so the secret post-gate
   // read cannot accidentally publish qr_only or inactive stores.
@@ -116,7 +93,7 @@ export default async function BuildingBazaarPage({
     .select(
       "stores!inner(id, slug, name, category, logo_url, order_count_week, created_at)"
     )
-    .eq("building_id", building.id)
+    .eq("building_id", buildingId)
     .eq("status", "active")
     .eq("stores.is_active", true)
     .in("stores.visibility", ["building", "nearby"]);
@@ -127,9 +104,9 @@ export default async function BuildingBazaarPage({
     .filter((store): store is NonNullable<typeof store> => Boolean(store))
     .map((store) => storePublicCardSchema.parse(store));
 
+  // A building with no active members isn't a public surface yet. Bail before the RPC.
   if (cards.length === 0) {
-    // A building with no active members isn't a public surface yet.
-    notFound();
+    return { sellers: [], drops: [] };
   }
 
   // Top product per store + the tiny "fresh today" row come from SQL. That keeps the page from
@@ -137,7 +114,7 @@ export default async function BuildingBazaarPage({
   const { data: productHighlights, error: productError } = await supabase.rpc(
     "get_building_product_highlights",
     {
-      p_building_id: building.id,
+      p_building_id: buildingId,
       p_drop_limit: 8
     }
   );
@@ -176,6 +153,68 @@ export default async function BuildingBazaarPage({
     topProduct: byStore.get(card.id)?.name ?? null,
     ordersThisWeek: card.order_count_week
   }));
+
+  return { sellers, drops };
+}
+
+// Open buildings only. Their bazaar content is fully public, so a short shared cache turns a viral
+// building from one Postgres round-trip per visitor into ~one per revalidate window — the same 30s
+// freshness the storefront already accepts (app/s/[slug]/page.tsx). Invite buildings never reach
+// this path: they stay fully dynamic for the cookie gate, so nothing behind an invite is ever
+// cached. Tagged by building so a membership change can revalidateTag(`bazaar:<id>`) on demand.
+function loadOpenBazaarContent(
+  buildingId: string
+): Promise<{ sellers: BazaarSeller[]; drops: BazaarDrop[] }> {
+  return unstable_cache(
+    () => readBazaarContent(buildingId),
+    ["bazaar-content", buildingId],
+    { revalidate: BAZAAR_CONTENT_REVALIDATE_SECONDS, tags: [`bazaar:${buildingId}`] }
+  )();
+}
+
+export default async function BuildingBazaarPage({
+  params
+}: {
+  params: Promise<{ publicSlug: string }>;
+}) {
+  const { publicSlug } = await params;
+  if (!PUBLIC_SLUG_RE.test(publicSlug)) {
+    notFound();
+  }
+
+  let buildingRow: BuildingPageRow | null;
+  try {
+    buildingRow = await loadGatedBuilding(publicSlug);
+  } catch (error) {
+    if (isTestSupabaseConfigError(error)) {
+      notFound();
+    }
+    throw error;
+  }
+  if (!buildingRow) {
+    notFound();
+  }
+
+  const building = buildingPublicSchema.parse({
+    id: buildingRow.id,
+    display_name: buildingRow.display_name,
+    city: buildingRow.city,
+    public_slug: buildingRow.public_slug,
+    access_type: buildingRow.access_type,
+    created_at: buildingRow.created_at
+  });
+
+  // Open buildings serve a short shared cache; invite buildings read fresh every request so the
+  // cookie gate above can never be bypassed by a cached payload.
+  const { sellers, drops } =
+    building.access_type === "open"
+      ? await loadOpenBazaarContent(building.id)
+      : await readBazaarContent(building.id);
+
+  if (sellers.length === 0) {
+    // A building with no active members isn't a public surface yet.
+    notFound();
+  }
 
   return (
     <BazaarPage
