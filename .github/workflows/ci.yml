@@ -152,7 +152,24 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
 
+      # Secrets can't be read in an `if:` directly, so probe the token in a step (where it can be an
+      # env var) and gate the deploy on the result. This keeps the OpenNext build running on every PR
+      # while letting forks / freshly-renamed repos without Cloudflare secrets stay green; the deploy
+      # turns itself back on automatically once CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID are set.
+      - name: Check Cloudflare credentials
+        id: cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping Cloudflare preview deploy — set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repo secrets to enable it."
+          fi
+
       - name: Deploy Cloudflare preview
+        if: steps.cf.outputs.configured == 'true'
         run: npx wrangler deploy --env preview
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
