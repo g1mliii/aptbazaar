@@ -44,7 +44,13 @@ const STAMP_LABEL: Record<OrderStatus, string> = {
   cancelled: "Cancelled"
 };
 
+// Reconciliation poll. POLL_MS is the tight interval used whenever SSE is down (and always for
+// online orders, whose payment/refund state arrives only through the poll). SSE_RECONCILE_MS is the
+// relaxed backstop kept running while SSE is healthy: publishOrderUpdate is best-effort, so a missed
+// frame on a still-open stream is still corrected within this window rather than waiting for a tab
+// refocus or reconnect.
 const POLL_MS = 20_000;
+const SSE_RECONCILE_MS = 60_000;
 
 // Customer-facing refund copy. refund_failed is a seller problem to fix (Stripe handoff in the
 // dashboard), so the customer just sees a neutral "we're on it" line — never an error code.
@@ -140,18 +146,31 @@ export function Tracking({
   }, [token, applyData]);
 
   useEffect(() => {
-    // Live updates over SSE (Phase 6.0c), with the 20s poll kept as reconciliation. Seller actions
-    // publish immediately; Stripe webhook payment/refund changes may only be visible through poll.
+    // Live updates over SSE (Phase 6.0c) with a reconciliation poll that never fully stops. Online
+    // orders poll at the tight interval throughout, because Stripe webhook payment/refund changes are
+    // not published to the stream — only seller-driven status is. Pay-at-pickup orders DO ride the
+    // stream for every change (status and markPaid), but publishOrderUpdate is best-effort, so once
+    // SSE is healthy we relax the poll to the slower backstop rather than removing it: a missed frame
+    // on a still-open stream is still corrected within SSE_RECONCILE_MS.
+    const sseHealthyInterval = paymentMode === "online" ? POLL_MS : SSE_RECONCILE_MS;
+
     const onVisible = () => {
       if (document.visibilityState === "visible") void refetch();
     };
     document.addEventListener("visibilitychange", onVisible);
 
-    const pollId = setInterval(() => void refetch(), POLL_MS);
+    let pollId: ReturnType<typeof setInterval> | null = null;
+    const setPoll = (intervalMs: number) => {
+      if (pollId !== null) clearInterval(pollId);
+      pollId = setInterval(() => void refetch(), intervalMs);
+    };
+
+    setPoll(POLL_MS);
 
     let es: EventSource | null = null;
     if (typeof EventSource !== "undefined") {
       es = new EventSource(`/api/track/${token}/stream`);
+      es.onopen = () => setPoll(sseHealthyInterval);
       es.addEventListener("status", (event) => {
         try {
           applyData(JSON.parse(event.data as string));
@@ -160,6 +179,8 @@ export function Tracking({
         }
       });
       es.onerror = () => {
+        // Stream dropped: tighten the poll back up and reconcile right away.
+        setPoll(POLL_MS);
         void refetch();
       };
     }
@@ -167,9 +188,9 @@ export function Tracking({
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       es?.close();
-      clearInterval(pollId);
+      if (pollId !== null) clearInterval(pollId);
     };
-  }, [refetch, applyData, token]);
+  }, [refetch, applyData, token, paymentMode]);
 
   const cancelled = status === "cancelled";
   const activeIdx = FLOW.findIndex((s) => s.key === status);

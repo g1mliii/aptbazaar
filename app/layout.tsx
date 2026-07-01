@@ -29,8 +29,10 @@ export const metadata: Metadata = {
   icons: {
     icon: "/assets/brand/logo-mark.svg"
   },
+  // `||` not `??`: CI sets NEXT_PUBLIC_APP_URL but can leave it empty, and `new URL("")` throws
+  // (Invalid URL), which fails page-data collection for every route during `next build`.
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
   )
 };
 

@@ -1,38 +1,10 @@
-import { computePlatformFee } from "@/lib/pricing/fee";
+import { z } from "zod";
 
-// Phase 10.6: pure founder-dashboard aggregation. All the math lives here so it can be unit-tested
-// against hand-built rows (the 10.6 regression: counts match independent queries). This file pulls
-// in no server-only modules so the test can import it under jsdom; the service-role fetch that feeds
-// it lives in `./load-metrics` (server-only). At MVP scale (tens of sellers, hundreds of orders)
-// folding paid rows in JS is cheap and avoids a new RPC + RLS surface; revisit with a snapshot/RPC
-// if order volume grows.
-
-const TOP_LIMIT = 10;
-
-export interface PaidOrderRow {
-  store_id: string;
-  total_cents: number;
-}
-
-export interface StoreRow {
-  id: string;
-  seller_id: string;
-}
-
-export interface SellerRow {
-  id: string;
-  display_name: string;
-}
-
-export interface MembershipRow {
-  building_id: string;
-  store_id: string;
-}
-
-export interface BuildingRow {
-  id: string;
-  display_name: string;
-}
+// Phase 10.6 / scale follow-up: the founder-dashboard shape plus the parser that validates the
+// get_admin_metrics RPC payload (migration 0040). The aggregation itself now runs in Postgres so the
+// Worker never folds the full paid-orders table in memory; this file is the typed boundary between
+// that JSON document and the dashboard. Pulls in no server-only modules so it can be unit-tested
+// under jsdom; the service-role call that feeds it lives in `./load-metrics` (server-only).
 
 export interface TopSeller {
   sellerId: string;
@@ -58,78 +30,54 @@ export interface AdminMetrics {
   topBuildings: TopBuilding[];
 }
 
-export interface AdminMetricsInput {
-  storeCount: number;
-  productCount: number;
-  paidOrders: PaidOrderRow[];
-  stores: StoreRow[];
-  sellers: SellerRow[];
-  memberships: MembershipRow[];
-  buildings: BuildingRow[];
-}
+const count = z.number().int().nonnegative();
+const cents = z.number().int().nonnegative();
 
-export function computeAdminMetrics(input: AdminMetricsInput): AdminMetrics {
-  const { paidOrders, stores, sellers, memberships, buildings } = input;
+const topSellerRowSchema = z.object({
+  seller_id: z.string(),
+  name: z.string(),
+  gmv_cents: cents,
+  order_count: count
+});
 
-  const sellerOfStore = new Map(stores.map((s) => [s.id, s.seller_id]));
-  const sellerName = new Map(sellers.map((s) => [s.id, s.display_name]));
-  const buildingOfStore = new Map(memberships.map((m) => [m.store_id, m.building_id]));
-  const buildingName = new Map(buildings.map((b) => [b.id, b.display_name]));
+const topBuildingRowSchema = z.object({
+  building_id: z.string(),
+  name: z.string(),
+  gmv_cents: cents,
+  order_count: count
+});
 
-  let gmvCents = 0;
-  let platformFeesCents = 0;
-  const sellerTotals = new Map<string, { gmvCents: number; orderCount: number }>();
-  const buildingTotals = new Map<string, { gmvCents: number; orderCount: number }>();
+// The raw JSON document returned by public.get_admin_metrics. Validated here so a shape drift fails
+// loudly at the boundary instead of rendering wrong money on the founder dashboard.
+const adminMetricsRowSchema = z.object({
+  store_count: count,
+  product_count: count,
+  paid_order_count: count,
+  gmv_cents: cents,
+  platform_fees_cents: cents,
+  top_sellers: z.array(topSellerRowSchema),
+  top_buildings: z.array(topBuildingRowSchema)
+});
 
-  for (const order of paidOrders) {
-    gmvCents += order.total_cents;
-    // Per-order fee, summed — matches what Stripe took on each charge. Never re-derive the %.
-    platformFeesCents += computePlatformFee(order.total_cents);
-
-    const sellerId = sellerOfStore.get(order.store_id);
-    if (sellerId) {
-      const acc = sellerTotals.get(sellerId) ?? { gmvCents: 0, orderCount: 0 };
-      acc.gmvCents += order.total_cents;
-      acc.orderCount += 1;
-      sellerTotals.set(sellerId, acc);
-    }
-
-    const buildingId = buildingOfStore.get(order.store_id);
-    if (buildingId) {
-      const acc = buildingTotals.get(buildingId) ?? { gmvCents: 0, orderCount: 0 };
-      acc.gmvCents += order.total_cents;
-      acc.orderCount += 1;
-      buildingTotals.set(buildingId, acc);
-    }
-  }
-
-  const topSellers: TopSeller[] = [...sellerTotals.entries()]
-    .map(([sellerId, t]) => ({
-      sellerId,
-      name: sellerName.get(sellerId) ?? "Unknown seller",
-      gmvCents: t.gmvCents,
-      orderCount: t.orderCount
-    }))
-    .sort((a, b) => b.gmvCents - a.gmvCents)
-    .slice(0, TOP_LIMIT);
-
-  const topBuildings: TopBuilding[] = [...buildingTotals.entries()]
-    .map(([buildingId, t]) => ({
-      buildingId,
-      name: buildingName.get(buildingId) ?? "Unknown building",
-      gmvCents: t.gmvCents,
-      orderCount: t.orderCount
-    }))
-    .sort((a, b) => b.gmvCents - a.gmvCents)
-    .slice(0, TOP_LIMIT);
-
+export function parseAdminMetrics(payload: unknown): AdminMetrics {
+  const row = adminMetricsRowSchema.parse(payload);
   return {
-    storeCount: input.storeCount,
-    productCount: input.productCount,
-    paidOrderCount: paidOrders.length,
-    gmvCents,
-    platformFeesCents,
-    topSellers,
-    topBuildings
+    storeCount: row.store_count,
+    productCount: row.product_count,
+    paidOrderCount: row.paid_order_count,
+    gmvCents: row.gmv_cents,
+    platformFeesCents: row.platform_fees_cents,
+    topSellers: row.top_sellers.map((s) => ({
+      sellerId: s.seller_id,
+      name: s.name,
+      gmvCents: s.gmv_cents,
+      orderCount: s.order_count
+    })),
+    topBuildings: row.top_buildings.map((b) => ({
+      buildingId: b.building_id,
+      name: b.name,
+      gmvCents: b.gmv_cents,
+      orderCount: b.order_count
+    }))
   };
 }
